@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+/// Cycles through credit images
 pub struct CreditImagePlugin;
 
 impl Plugin for CreditImagePlugin {
@@ -18,27 +19,33 @@ struct CreditImage {
     id: u8,
 }
 
+/// Keeps track of which credit image should be visible; should be a resource
 #[derive(Default)]
 struct ActiveImage {
     id: u8,
 }
 
+/// Simple timeout; should be a resource
 struct Timeout {
     timer: Timer,
 }
 
+/// Changes active credit image on timeout
 fn timer_change_credit_image(
     time: Res<Time>,
     mut timeout: ResMut<Timeout>,
     mut active: ResMut<ActiveImage>,
     mut query: Query<(&mut Visibility, &CreditImage)>,
 ) {
+    // update our timer
     timeout.timer.tick(time.delta());
 
     if timeout.timer.just_finished() {
-        active.id += 1;
-        active.id %= 8;
+        // cycle active id
+        active.id = (active.id + 1) % 8;
         info!("changing active image to {}", active.id);
+
+        // set active to visible and all others to invisible
         for (mut visibility, credit) in query.iter_mut() {
             if credit.id == active.id {
                 visibility.is_visible = true;
@@ -49,6 +56,7 @@ fn timer_change_credit_image(
     }
 }
 
+/// Spawns all credit images
 fn spawn_credit_images(mut commands: Commands) {
     // TODO: load in actual images
     for i in 0..8u8 {
@@ -61,11 +69,14 @@ fn spawn_credit_images(mut commands: Commands) {
                     ..default()
                 },
                 sprite: Sprite {
-                    color: Color::rgb(1., (1. - color).clamp(0., 1.), color),
+                    color: Color::rgb(1., (1. - color).clamp(0., 1.), color.clamp(0., 1.)),
                     custom_size: Some(Vec2::from_array([1280., 720.])),
                     ..default()
                 },
-                visibility: Visibility { is_visible: false },
+                // all invisible by default, except for the 0th
+                visibility: Visibility {
+                    is_visible: i == 0,
+                },
                 ..default()
             })
             .insert(CreditImage { id: i });
