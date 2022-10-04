@@ -57,19 +57,34 @@ fn timer_change_credit_image(
 }
 
 /// Spawns all credit images
-fn spawn_credit_images(mut commands: Commands) {
+fn spawn_credit_images(mut commands: Commands, assets: Res<AssetServer>) {
+
+
+    //Add file names here for credit images
+    let credits = vec![
+        "hildebrandt.png",
+        "biggs.png",
+        "chakov.png",
+        "glazar.png",
+        "hopping.png",
+        "walsh.png",
+        "PlaceHolder.png",
+        "PlaceHolder2.png",
+    ];
+
     // TODO: load in actual images
     for i in 0..8u8 {
         let color = i as f32 / 7.;
         commands
             .spawn()
             .insert_bundle(SpriteBundle {
+                texture: assets.load(credits[usize::from(i)]),
                 transform: Transform {
                     translation: Vec3::from_array([0., 0., 1.]),
                     ..default()
                 },
                 sprite: Sprite {
-                    color: Color::rgb(1., (1. - color).clamp(0., 1.), color.clamp(0., 1.)),
+                    //color: Color::rgb(1., (1. - color).clamp(0., 1.), color.clamp(0., 1.)),
                     custom_size: Some(Vec2::from_array([1280., 720.])),
                     ..default()
                 },
