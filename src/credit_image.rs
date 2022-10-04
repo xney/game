@@ -62,14 +62,14 @@ fn spawn_credit_images(mut commands: Commands, assets: Res<AssetServer>) {
 
     //Add file names here for credit images
     let credits = vec![
-        "Biggs Title Card.png",
-        "Chakov Title Card.png",
-	    "Glazar Title Card.png",
-        "Hopping Title Card.png",
-        "Walsh Title Card.png",
+        "hildebrant.png",
+        "biggs.png",
+        "chakov.png",
+        "glazar.png",
+        "hopping.png",
+        "walsh.png",
         "PlaceHolder.png",
         "PlaceHolder2.png",
-        "PlaceHolder3.png",
     ];
 
     // TODO: load in actual images
