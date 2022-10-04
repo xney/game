@@ -62,7 +62,7 @@ fn spawn_credit_images(mut commands: Commands, assets: Res<AssetServer>) {
 
     //Add file names here for credit images
     let credits = vec![
-        "hildebrant.png",
+        "hildebrandt.png",
         "biggs.png",
         "chakov.png",
         "glazar.png",
