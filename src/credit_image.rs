@@ -68,7 +68,7 @@ fn spawn_credit_images(mut commands: Commands, assets: Res<AssetServer>) {
         "glazar.png",
         "hopping.png",
         "walsh.png",
-        "PlaceHolder.png",
+        "haskovec.png",
         "PlaceHolder2.png",
     ];
 
