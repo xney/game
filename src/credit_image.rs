@@ -1,16 +1,21 @@
 use bevy::prelude::*;
 
+use crate::states;
+
 /// Cycles through credit images
 pub struct CreditImagePlugin;
 
 impl Plugin for CreditImagePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ActiveImage::default())
-            .insert_resource(Timeout {
-                timer: Timer::from_seconds(2., true),
-            })
-            .add_startup_system(spawn_credit_images)
-            .add_system(timer_change_credit_image);
+        app.add_system_set(
+            SystemSet::on_enter(states::GameState::Credits).with_system(init_credits),
+        )
+        .add_system_set(
+            SystemSet::on_update(states::GameState::Credits).with_system(timer_change_credit_image),
+        )
+        .add_system_set(
+            SystemSet::on_exit(states::GameState::Credits).with_system(destroy_credits),
+        );
     }
 }
 
@@ -57,11 +62,10 @@ fn timer_change_credit_image(
 }
 
 /// Spawns all credit images
-fn spawn_credit_images(mut commands: Commands, assets: Res<AssetServer>) {
-
-
+fn init_credits(mut commands: Commands, assets: Res<AssetServer>) {
+    info!("initializing credits");
     //Add file names here for credit images
-    let credits = vec![
+    let credits: Vec<&str> = vec![
         "hildebrandt.png",
         "biggs.png",
         "chakov.png",
@@ -72,29 +76,41 @@ fn spawn_credit_images(mut commands: Commands, assets: Res<AssetServer>) {
         "thompson.png",
     ];
 
-    // TODO: load in actual images
-    for i in 0..8u8 {
-        let color = i as f32 / 7.;
+    for (i, credit) in credits.iter().enumerate() {
         commands
             .spawn()
             .insert_bundle(SpriteBundle {
-                texture: assets.load(credits[usize::from(i)]),
+                texture: assets.load(*credit),
                 transform: Transform {
                     translation: Vec3::from_array([0., 0., 1.]),
                     ..default()
                 },
                 sprite: Sprite {
-                    //color: Color::rgb(1., (1. - color).clamp(0., 1.), color.clamp(0., 1.)),
                     custom_size: Some(Vec2::from_array([1280., 720.])),
                     ..default()
                 },
                 // all invisible by default, except for the 0th
-                visibility: Visibility {
-                    is_visible: i == 0,
-                },
+                visibility: Visibility { is_visible: i == 0 },
                 ..default()
             })
-            .insert(CreditImage { id: i });
-        info!("spawned credit image {}", i);
+            .insert(CreditImage { id: i as u8 });
+        info!("spawned credit image {}", credit);
     }
+
+    // create necessary resources
+    commands.insert_resource(ActiveImage::default());
+    commands.insert_resource(Timeout {
+        timer: Timer::from_seconds(2., true),
+    });
+}
+
+fn destroy_credits(mut commands: Commands, query: Query<Entity, With<CreditImage>>) {
+    info!("destroying credits");
+    // remove all credit image entities
+    for entity in query.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    commands.remove_resource::<ActiveImage>();
+    commands.remove_resource::<Timeout>();
 }
