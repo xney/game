@@ -1,4 +1,4 @@
-use bevy::{prelude::*,};
+use bevy::prelude::*;
 
 mod credit_image;
 mod world;
@@ -23,10 +23,10 @@ fn main() {
         .run();
 }
 
-fn setup(mut commands: Commands, assets: Res<AssetServer>,){
+fn setup(mut commands: Commands, assets: Res<AssetServer>) {
     //Generate one chunk
     let mut chunk = world::Chunk::new();
-    world::spawn_chunk(&mut chunk, &mut commands, assets); 
+    world::spawn_chunk(&mut chunk, &mut commands, assets);
 
     //(Example): Destroy a single block at 3,3
     world::destory_block(&mut chunk, &mut commands, 3, 3);

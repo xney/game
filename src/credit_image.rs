@@ -58,8 +58,6 @@ fn timer_change_credit_image(
 
 /// Spawns all credit images
 fn spawn_credit_images(mut commands: Commands, assets: Res<AssetServer>) {
-
-
     //Add file names here for credit images
     let credits = vec![
         "hildebrandt.png",
@@ -74,7 +72,7 @@ fn spawn_credit_images(mut commands: Commands, assets: Res<AssetServer>) {
 
     // TODO: load in actual images
     for i in 0..8u8 {
-        let color = i as f32 / 7.;
+        // let color = i as f32 / 7.;
         commands
             .spawn()
             .insert_bundle(SpriteBundle {
@@ -89,9 +87,7 @@ fn spawn_credit_images(mut commands: Commands, assets: Res<AssetServer>) {
                     ..default()
                 },
                 // all invisible by default, except for the 0th
-                visibility: Visibility {
-                    is_visible: i == 0,
-                },
+                visibility: Visibility { is_visible: i == 0 },
                 ..default()
             })
             .insert(CreditImage { id: i });
