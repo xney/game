@@ -18,16 +18,13 @@ fn main() {
         .add_startup_system(|mut c: Commands| {
             c.spawn_bundle(Camera2dBundle::default());
         })
+        .insert_resource(WindowDescriptor {
+            title: "Game".to_string(),
+            width: 1280.,
+            height: 720.,
+            ..default()
+        })
         .add_plugins(DefaultPlugins)
-        .add_startup_system(setup)
+        .add_plugin(world::WorldPlugin)
         .run();
-}
-
-fn setup(mut commands: Commands, assets: Res<AssetServer>,){
-    //Generate one chunk
-    let mut chunk = world::Chunk::new();
-    world::spawn_chunk(&mut chunk, &mut commands, assets); 
-
-    //(Example): Destroy a single block at 3,3
-    world::destory_block(&mut chunk, &mut commands, 3, 3);
 }
