@@ -46,6 +46,11 @@ impl Plugin for PlayerPlugin {
 fn setup(mut commands: Commands, assets: Res<AssetServer>) {
 	commands
 		.spawn_bundle(SpriteBundle {
+            transform: Transform {
+                // render in front of blocks
+                translation: Vec3::from_array([0., 0., 2.]),
+                ..default()
+            },
             texture: assets.load(PLAYER_ASSET),
 			sprite: Sprite {
 				custom_size: Some(Vec2::splat(PLAYER_SIZE)),
