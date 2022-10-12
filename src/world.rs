@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::states;
 
 use bincode::{Decode, Encode};
+use rand::Rng;
 
 const CHUNK_HEIGHT: usize = 10;
 const CHUNK_WIDTH: usize = 10;
@@ -24,6 +25,7 @@ impl Plugin for WorldPlugin {
         .add_system_set(
             SystemSet::on_update(states::GameState::InGame)
                 .with_system(f2_prints_terrain)
+                .with_system(g_deletes_random_block),
         )
         .add_system_set(SystemSet::on_exit(states::GameState::InGame).with_system(destroy_world));
     }
@@ -365,6 +367,25 @@ fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
     }
 }
 
+/// Make the G key delete a random block in the first chunk
+fn g_deletes_random_block(
+    input: Res<Input<KeyCode>>,
+    mut commands: Commands,
+    mut terrain: ResMut<Terrain>,
+) {
+    // return early if g was not just pressed
+    if !input.just_pressed(KeyCode::G) {
+        return;
+    }
+
+    let (x, y) = (
+        rand::thread_rng().gen_range(0, CHUNK_WIDTH),
+        rand::thread_rng().gen_range(0, CHUNK_HEIGHT),
+    );
+
+    // don't care about result here
+    let _res = destroy_block(x, y, &mut commands, &mut terrain);
+}
 
 /// unit tests
 #[cfg(test)]
