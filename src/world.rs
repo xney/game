@@ -2,8 +2,18 @@ use bevy::prelude::*;
 
 use crate::states;
 
+use bincode::{Decode, Encode};
+use rand::Rng;
+
 const CHUNK_HEIGHT: usize = 10;
 const CHUNK_WIDTH: usize = 10;
+
+/// This is the bincode config that we should use everywhere
+/// TODO: move to a better location
+const BINCODE_CONFIG: bincode::config::Configuration = bincode::config::standard()
+    .with_little_endian()
+    .with_variable_int_encoding()
+    .write_fixed_array_length();
 
 pub struct WorldPlugin;
 
@@ -11,6 +21,11 @@ impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
         app.add_system_set(
             SystemSet::on_enter(states::GameState::InGame).with_system(create_world),
+        )
+        .add_system_set(
+            SystemSet::on_update(states::GameState::InGame)
+                .with_system(f2_prints_terrain)
+                .with_system(g_deletes_random_block),
         )
         .add_system_set(SystemSet::on_exit(states::GameState::InGame).with_system(destroy_world));
     }
@@ -20,7 +35,7 @@ pub fn create_world(mut commands: Commands, assets: Res<AssetServer>) {
     info!("creating world");
 
     // create now, insert as resource later
-    let mut terrain = Terrain::default();
+    let mut terrain = Terrain::empty();
 
     // Generate one chunk
     spawn_chunk(0, &mut commands, assets, &mut terrain);
@@ -56,21 +71,31 @@ fn destroy_world(mut commands: Commands, query: Query<Entity, With<RenderedBlock
 
 /// Represents all chunks in the game world
 /// Should be a global resource
+#[derive(Encode, Decode, Debug, PartialEq)]
 pub struct Terrain {
     /// Vector of chunks, each one contains its own chunk_number
     /// TODO: potentially convert into a symbol table for faster lookups?
     chunks: Vec<Chunk>,
 }
 
-impl Default for Terrain {
-    fn default() -> Self {
-        Self {
-            chunks: Default::default(),
+impl Terrain {
+    /// Create a terrain with specified number of chunks
+    /// Chunks contain default blocks and are numbered from 0 to len-1
+    fn new(num_chunks: u64) -> Terrain {
+        Terrain {
+            chunks: (0..num_chunks).map(|d| Chunk::new(d)).collect(),
         }
+    }
+
+    /// Creates a terrain with no chunks
+    fn empty() -> Terrain {
+        Terrain { chunks: Vec::new() }
     }
 }
 
 /// Represents a chunk of blocks; stored in the Terrain resource
+/// TODO: maybe custom bitpack for Encode and Decode?
+#[derive(Encode, Decode, Debug, PartialEq)]
 pub struct Chunk {
     /// 2D array [x, y]
     pub blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT],
@@ -93,7 +118,7 @@ impl Chunk {
 }
 
 /// _Not_ a component; stored in a Chunk
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Block {
     /// What kind of block is this
     block_type: BlockType,
@@ -101,12 +126,63 @@ pub struct Block {
     entity: Option<Entity>,
 }
 
+impl Block {
+    /// Easily create a block without an Entity
+    fn new(block_type: BlockType) -> Block {
+        Block {
+            block_type,
+            entity: None,
+        }
+    }
+}
+
+// simple comparison, useful for testing
+impl PartialEq for Block {
+    fn eq(&self, other: &Self) -> bool {
+        // ignore entity differences
+        self.block_type == other.block_type
+    }
+}
+
+// only encode/decode the block type, not the entity
+impl Encode for Block {
+    fn encode<E: bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> Result<(), bincode::error::EncodeError> {
+        bincode::Encode::encode(&self.block_type, encoder)?;
+        Ok(())
+    }
+}
+
+impl Decode for Block {
+    fn decode<D: bincode::de::Decoder>(
+        decoder: &mut D,
+    ) -> Result<Self, bincode::error::DecodeError> {
+        Ok(Self {
+            block_type: bincode::Decode::decode(decoder)?,
+            entity: None,
+        })
+    }
+}
+
+impl<'de> bincode::BorrowDecode<'de> for Block {
+    fn borrow_decode<D: bincode::de::BorrowDecoder<'de>>(
+        decoder: &mut D,
+    ) -> Result<Self, bincode::error::DecodeError> {
+        Ok(Self {
+            block_type: bincode::BorrowDecode::borrow_decode(decoder)?,
+            entity: None,
+        })
+    }
+}
+
 /// Marker component for tagging sprite entity for block
 #[derive(Component)]
 pub struct RenderedBlock;
 
 /// A distinct type of block, with its own texture
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Encode, Decode, PartialEq)]
 pub enum BlockType {
     Sandstone,
 }
@@ -240,4 +316,135 @@ fn to_world_point_x(x: usize) -> f32 {
 }
 fn to_world_point_y(y: usize, chunk_number: u64) -> f32 {
     return -(y as f32 + chunk_number as f32 * CHUNK_HEIGHT as f32) * 32.;
+}
+
+fn print_encoding_sizes() {
+    match bincode::encode_to_vec(Block::new(BlockType::Sandstone), BINCODE_CONFIG) {
+        Ok(block) => info!("a sandstone block is {} byte(s)", block.len()),
+        Err(e) => error!("unable to encode block: {}", e),
+    }
+
+    match bincode::encode_to_vec(Chunk::new(0), BINCODE_CONFIG) {
+        Ok(chunk) => info!("a default chunk is {} bytes", chunk.len()),
+        Err(e) => error!("unable to encode chunk: {}", e),
+    }
+
+    match bincode::encode_to_vec(Terrain::new(1), BINCODE_CONFIG) {
+        Ok(terrain) => info!("a default terrain with 1 chunk is {} bytes", terrain.len()),
+        Err(e) => error!("unable to encode terrina: {}", e),
+    }
+}
+
+/// Make the F2 key dump the encoded terrain
+fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
+    // return early if F2 was not just pressed
+    if !input.just_pressed(KeyCode::F2) {
+        return;
+    }
+
+    print_encoding_sizes();
+
+    // try to encode, allocating a vec
+    // in a real packet, we should use a pre-allocated array and encode into its slice
+    match bincode::encode_to_vec(terrain.as_ref(), BINCODE_CONFIG) {
+        Ok(encoded_vec) => {
+            // we have successfully encoded
+            let mut encoded_str = String::new();
+            // print one long string of bytes, hex representation
+            for byte in &encoded_vec {
+                encoded_str.push_str(&format!("{:02x} ", byte));
+            }
+            info!(
+                "current terrain is {} bytes: {}",
+                encoded_vec.len(),
+                encoded_str
+            );
+        }
+        Err(e) => {
+            // unable to encode
+            error!("unable to encode terrain, {}", e);
+        }
+    }
+}
+
+/// Make the G key delete a random block in the first chunk
+fn g_deletes_random_block(
+    input: Res<Input<KeyCode>>,
+    mut commands: Commands,
+    mut terrain: ResMut<Terrain>,
+) {
+    // return early if g was not just pressed
+    if !input.just_pressed(KeyCode::G) {
+        return;
+    }
+
+    let (x, y) = (
+        rand::thread_rng().gen_range(0, CHUNK_WIDTH),
+        rand::thread_rng().gen_range(0, CHUNK_HEIGHT),
+    );
+
+    // don't care about result here
+    let _res = destroy_block(x, y, &mut commands, &mut terrain);
+}
+
+/// unit tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_decode_block() {
+        let original = Block::new(BlockType::Sandstone);
+        let encoded = bincode::encode_to_vec(original, BINCODE_CONFIG).unwrap();
+        let decoded: Block = bincode::decode_from_slice(&encoded, BINCODE_CONFIG)
+            .unwrap()
+            .0;
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn encode_decode_chunk() {
+        let original = {
+            let mut chunk = Chunk::new(0);
+            // change some block
+            chunk.blocks[1][1] = Some(Block::new(BlockType::Sandstone));
+            chunk
+        };
+        let encoded = bincode::encode_to_vec(&original, BINCODE_CONFIG).unwrap();
+        let decoded: Chunk = bincode::decode_from_slice(&encoded, BINCODE_CONFIG)
+            .unwrap()
+            .0;
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn encode_decode_terrain() {
+        let original = {
+            let mut terrain = Terrain::new(2);
+            // change some block
+            terrain.chunks[1].blocks[1][1] = Some(Block::new(BlockType::Sandstone));
+            terrain
+        };
+        let encoded = bincode::encode_to_vec(&original, BINCODE_CONFIG).unwrap();
+        let decoded: Terrain = bincode::decode_from_slice(&encoded, BINCODE_CONFIG)
+            .unwrap()
+            .0;
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn size_sanity_check() {
+        let block_size = bincode::encode_to_vec(Block::new(BlockType::Sandstone), BINCODE_CONFIG)
+            .unwrap()
+            .len();
+        let chunk_size = bincode::encode_to_vec(Chunk::new(0), BINCODE_CONFIG)
+            .unwrap()
+            .len();
+        let terrain_size = bincode::encode_to_vec(Terrain::new(1), BINCODE_CONFIG)
+            .unwrap()
+            .len();
+        assert!(terrain_size > chunk_size);
+        assert!(terrain_size > block_size);
+        assert!(chunk_size > block_size);
+    }
 }
