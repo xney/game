@@ -90,7 +90,7 @@ fn handle_movement(
     )>,
     time: Res<Time>,
 ) {
-    for (mut player_transform, mut player_jump_timer, mut player_jump_state, player) in
+    for (mut player_transform, mut player_jump_timer, mut player_jump_state, _player) in
         query.iter_mut()
     {
         let mut x_vel = 0.;
@@ -142,7 +142,7 @@ fn handle_camera_movement(
     mut query: Query<(&Transform, &mut CameraBoundsBox, With<Player>)>,
     mut camera_query: Query<(&mut Transform, With<CharacterCamera>, Without<Player>)>,
 ) {
-    for (player_transform, mut camera_box, player) in query.iter_mut() {
+    for (player_transform, mut camera_box, _player) in query.iter_mut() {
         //Likely has to be changed when multiplayer is added
         let mut camera = camera_query.single_mut();
 
