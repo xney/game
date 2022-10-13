@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use std::fs;
+use std::fs::*;
 use std::io::Write;
 
 use crate::states;
@@ -27,8 +27,9 @@ impl Plugin for WorldPlugin {
         .add_system_set(
             SystemSet::on_update(states::GameState::InGame)
                 .with_system(f2_prints_terrain)
-                .with_system(g_deletes_random_block)
                 .with_system(f5_writes_terrain)
+                .with_system(f6_loads_terrain)
+                .with_system(g_deletes_random_block)
         )
         .add_system_set(SystemSet::on_exit(states::GameState::InGame).with_system(destroy_world));
     }
@@ -370,6 +371,7 @@ fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
     }
 }
 
+// Make f5 write encoded terrain to file "savedterrain"
 fn f5_writes_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
     // return early if F5 was not just pressed
     if !input.just_pressed(KeyCode::F5) {
@@ -380,7 +382,7 @@ fn f5_writes_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
     match bincode::encode_to_vec(terrain.as_ref(), BINCODE_CONFIG) {
         Ok(encoded_vec) => {
             // write the bytes to file
-            match fs::File::create("savedterrain") {
+            match File::create("savedterrain") {
                 Ok(mut file) => {
                     file.write_all(&encoded_vec).expect("could not write to save file");
                 }
@@ -388,30 +390,73 @@ fn f5_writes_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
                     error!("could not create save file, {}", e);
                 }
             }
-            
         }
         Err(e) => {
-            // unable to encode
             error!("unable to encode terrain, {}", e);
         }
     }
 }
 
-fn f6_loads_terrain(input: Res<Input<KeyCode>>) {
-    // return early if F5 was not just pressed
+// Make f6 read encoded terrain from file "savedterrain", clear current block entities, and link new entities
+fn f6_loads_terrain(input: Res<Input<KeyCode>>, mut commands: Commands, assets: Res<AssetServer>, query: Query<Entity, With<RenderedBlock>>) {
+    // return early if F6 was not just pressed
     if !input.just_pressed(KeyCode::F6) {
         return;
     }
-
-    match fs::read("savedterrain") {
+    match read("savedterrain") {
         Ok(encoded_vec) => {
-            let decoded: Terrain = bincode::decode_from_slice(&encoded_vec, BINCODE_CONFIG)
+            // clear the world
+            for entity in query.iter() {
+                commands.entity(entity).despawn();
+            }
+            commands.remove_resource::<Terrain>();
+            // load the world
+            let mut decoded: Terrain = bincode::decode_from_slice(&encoded_vec, BINCODE_CONFIG)
             .unwrap()
             .0;
-            // load into world
+            load_from_vec(&mut commands, assets, &mut decoded);
+            commands.insert_resource(decoded);
         }
         Err(e) => {
             error!("could not read save file, {}", e);
+        }
+    }
+}
+
+// Load world from vec (assumes terrain is cleared)
+pub fn load_from_vec(
+    commands: &mut Commands,
+    assets: Res<AssetServer>,
+    terrain: &mut Terrain,
+) {
+    for chunk in &mut terrain.chunks {
+        for x in 0..CHUNK_WIDTH {
+            for y in 0..CHUNK_HEIGHT {
+                let block_opt = &mut chunk.blocks[x][y];
+                // if there is a block at this location
+                if let Some(block) = block_opt {
+                    // spawn in the sprite for the block
+                    let entity = commands
+                        .spawn()
+                        .insert_bundle(SpriteBundle {
+                            texture: assets.load(block.block_type.image_file_path()),
+                            transform: Transform {
+                                translation: Vec3::from_array([
+                                    to_world_point_x(x),
+                                    to_world_point_y(y, chunk.chunk_number),
+                                    1.,
+                                ]),
+                                ..default()
+                            },
+                            ..default()
+                        })
+                        .insert(RenderedBlock)
+                        .id();
+    
+                    // link the entity to the block
+                    block.entity = Option::Some(entity);
+                }
+            }
         }
     }
 }
