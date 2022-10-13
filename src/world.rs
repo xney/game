@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use std::fs;
+use std::io::Write;
 
 use crate::states;
 
@@ -25,7 +27,8 @@ impl Plugin for WorldPlugin {
         .add_system_set(
             SystemSet::on_update(states::GameState::InGame)
                 .with_system(f2_prints_terrain)
-                .with_system(g_deletes_random_block),
+                .with_system(g_deletes_random_block)
+                .with_system(f5_writes_terrain)
         )
         .add_system_set(SystemSet::on_exit(states::GameState::InGame).with_system(destroy_world));
     }
@@ -363,6 +366,52 @@ fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
         Err(e) => {
             // unable to encode
             error!("unable to encode terrain, {}", e);
+        }
+    }
+}
+
+fn f5_writes_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
+    // return early if F5 was not just pressed
+    if !input.just_pressed(KeyCode::F5) {
+        return;
+    }
+    // try to encode, allocating a vec
+    // in a real packet, we should use a pre-allocated array and encode into its slice
+    match bincode::encode_to_vec(terrain.as_ref(), BINCODE_CONFIG) {
+        Ok(encoded_vec) => {
+            // write the bytes to file
+            match fs::File::create("savedterrain") {
+                Ok(mut file) => {
+                    file.write_all(&encoded_vec).expect("could not write to save file");
+                }
+                Err(e) => {
+                    error!("could not create save file, {}", e);
+                }
+            }
+            
+        }
+        Err(e) => {
+            // unable to encode
+            error!("unable to encode terrain, {}", e);
+        }
+    }
+}
+
+fn f6_loads_terrain(input: Res<Input<KeyCode>>) {
+    // return early if F5 was not just pressed
+    if !input.just_pressed(KeyCode::F6) {
+        return;
+    }
+
+    match fs::read("savedterrain") {
+        Ok(encoded_vec) => {
+            let decoded: Terrain = bincode::decode_from_slice(&encoded_vec, BINCODE_CONFIG)
+            .unwrap()
+            .0;
+            // load into world
+        }
+        Err(e) => {
+            error!("could not read save file, {}", e);
         }
     }
 }
