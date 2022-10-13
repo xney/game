@@ -9,6 +9,9 @@ const TITLE: &str = "The Krusty Krabs";
 const WIN_W: f32 = 1280.;
 const WIN_H: f32 = 720.;
 
+#[derive(Component)]
+struct CharacterCamera;
+
 fn main() {
     App::new()
         .insert_resource(WindowDescriptor {
@@ -18,7 +21,8 @@ fn main() {
             ..default()
         })
         .add_startup_system(|mut c: Commands| {
-            c.spawn_bundle(Camera2dBundle::default());
+            c.spawn_bundle(Camera2dBundle::default())
+                .insert(CharacterCamera);
         })
         .insert_resource(WindowDescriptor {
             title: "Game".to_string(),
