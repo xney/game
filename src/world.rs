@@ -382,7 +382,9 @@ fn f5_writes_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
     match bincode::encode_to_vec(terrain.as_ref(), BINCODE_CONFIG) {
         Ok(encoded_vec) => {
             // write the bytes to file
-            match File::create("savedterrain") {
+            create_dir_all("./savedata/"); //creates the savedata folder if it is missing
+
+            match File::create("./savedata/quicksave.sav") {
                 Ok(mut file) => {
                     file.write_all(&encoded_vec).expect("could not write to save file");
                 }
@@ -403,7 +405,7 @@ fn f6_loads_terrain(input: Res<Input<KeyCode>>, mut commands: Commands, assets: 
     if !input.just_pressed(KeyCode::F6) {
         return;
     }
-    match read("savedterrain") {
+    match read("./savedata/quicksave.sav") {
         Ok(encoded_vec) => {
             // clear the world
             for entity in query.iter() {
@@ -452,7 +454,7 @@ pub fn load_from_vec(
                         })
                         .insert(RenderedBlock)
                         .id();
-    
+
                     // link the entity to the block
                     block.entity = Option::Some(entity);
                 }
