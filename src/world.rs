@@ -5,8 +5,8 @@ use crate::states;
 use bincode::{Decode, Encode};
 use rand::Rng;
 
-const CHUNK_HEIGHT: usize = 10;
-const CHUNK_WIDTH: usize = 10;
+pub const CHUNK_HEIGHT: usize = 10;
+pub const CHUNK_WIDTH: usize = 10;
 
 /// This is the bincode config that we should use everywhere
 /// TODO: move to a better location
@@ -75,7 +75,7 @@ fn destroy_world(mut commands: Commands, query: Query<Entity, With<RenderedBlock
 pub struct Terrain {
     /// Vector of chunks, each one contains its own chunk_number
     /// TODO: potentially convert into a symbol table for faster lookups?
-    chunks: Vec<Chunk>,
+    pub chunks: Vec<Chunk>,
 }
 
 impl Terrain {
@@ -121,9 +121,9 @@ impl Chunk {
 #[derive(Copy, Clone, Debug)]
 pub struct Block {
     /// What kind of block is this
-    block_type: BlockType,
+    pub block_type: BlockType,
     /// The sprite entity that renders this block
-    entity: Option<Entity>,
+    pub entity: Option<Entity>,
 }
 
 impl Block {
@@ -311,10 +311,10 @@ pub fn destroy_block(
     Err(DestroyBlockError::ChunkNotLoaded)
 }
 
-fn to_world_point_x(x: usize) -> f32 {
+pub fn to_world_point_x(x: usize) -> f32 {
     return (x as f32) * 32.;
 }
-fn to_world_point_y(y: usize, chunk_number: u64) -> f32 {
+pub fn to_world_point_y(y: usize, chunk_number: u64) -> f32 {
     return -(y as f32 + chunk_number as f32 * CHUNK_HEIGHT as f32) * 32.;
 }
 

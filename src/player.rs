@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use std::time::Duration;
+use bevy::{prelude::*, sprite::collide_aabb::{collide, Collision}};
+use std::{time::Duration, cmp};
 
-use crate::CharacterCamera;
+use crate::{CharacterCamera, world::{Terrain, CHUNK_HEIGHT, to_world_point_y, to_world_point_x}};
 
 const PLAYER_ASSET: &str = "Ferris.png";
 const PLAYER_SIZE: f32 = 32.;
@@ -34,6 +34,25 @@ impl Default for PlayerJumpState {
 #[derive(Component)]
 struct JumpState {
     state: PlayerJumpState,
+}
+
+#[derive(Component)]
+struct PlayerCollision {
+    top: Option<f32>,
+    right: Option<f32>,
+    bottom: Option<f32>,
+    left: Option<f32>,
+}
+
+impl Default for PlayerCollision {
+    fn default() -> PlayerCollision {
+        PlayerCollision {
+            top: None,
+            right: None,
+            bottom: None,
+            left: None
+        }
+    }
 }
 
 pub struct PlayerPlugin;
@@ -89,6 +108,7 @@ fn handle_movement(
         With<Player>,
     )>,
     time: Res<Time>,
+    terrain: Option<Res<Terrain>>,
 ) {
     for (mut player_transform, mut player_jump_timer, mut player_jump_state, _player) in
         query.iter_mut()
@@ -127,15 +147,87 @@ fn handle_movement(
         if player_jump_timer.timer.just_finished() {
             player_jump_state.state = PlayerJumpState::NonJumping;
         }
+    
+        player_transform.translation.x += x_vel;
+        player_transform.translation.y += y_vel;
+
+        if let Some(ref terrain) = terrain {
+            let player_collision = get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
+    
+            if player_collision.left.is_some() {
+                player_transform.translation.x = player_collision.left.unwrap();
+            }
+            if player_collision.right.is_some() {
+                player_transform.translation.x = player_collision.right.unwrap();
+            }
+            if player_collision.top.is_some() {
+                player_transform.translation.y = player_collision.top.unwrap();
+            }
+            if player_collision.bottom.is_some() {
+                player_transform.translation.y = player_collision.bottom.unwrap();
+            }
+        }
 
         //Handles Gravity, Currently stops at arbitrary height
         if player_transform.translation.y > -200.0 {
-            y_vel += GRAVITY * time.delta_seconds();
+            player_transform.translation.y += GRAVITY * time.delta_seconds();
         }
 
-        player_transform.translation.x += x_vel;
-        player_transform.translation.y += y_vel;
+        if let Some(ref terrain) = terrain {
+            let player_collision = get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
+    
+            if player_collision.bottom.is_some() {
+                player_transform.translation.y = player_collision.bottom.unwrap();
+            }
+        }
     }
+}
+
+fn get_collisions(
+    player_transform: &Mut<Transform>,
+    terrain: &Res<Terrain>,
+    debug: bool
+) -> PlayerCollision {
+    // Get block indices we need to check
+    // Assume player is 1x1 for now
+
+    let x_block_index = (player_transform.translation.x / 32.) as usize;
+    let y_block_index = -(player_transform.translation.y / 32.) as usize;
+
+    let sizes = Vec2 { x: 32.0, y: 32.0 };
+
+    let mut collisions = PlayerCollision::default();
+
+    for x_index in (cmp::max(1, x_block_index) - 1)..=(x_block_index + 1) {
+        for y_index in (cmp::max(1, y_block_index) - 1)..=(y_block_index + 1) {
+            let chunk_number = y_index / CHUNK_HEIGHT;
+            let chunk_y_index = y_index - (chunk_number * CHUNK_HEIGHT);
+
+            let block = terrain.chunks[chunk_number].blocks[x_index][chunk_y_index];
+            if block.is_some() && block.unwrap().entity.is_some() {
+                let block_pos = Vec3 {
+                    x: to_world_point_x(x_index),
+                    y: to_world_point_y(chunk_y_index, chunk_number as u64),
+                    z: 2.
+                };
+                let collision = collide(
+                    player_transform.translation, sizes,
+                    block_pos, sizes);
+                match collision {
+                    Some(Collision::Top) => collisions.bottom = Some(block_pos.y + sizes.y),
+                    Some(Collision::Left) => collisions.right = Some(block_pos.x - sizes.x),
+                    Some(Collision::Bottom) => collisions.top = Some(block_pos.y - sizes.y),
+                    Some(Collision::Right) => collisions.left = Some(block_pos.x + sizes.x),
+                    _ => (),
+                }
+                if debug {
+                    info!("Block x: {}, y: {}, chunk: {}, collision: {:?}, playerxy: {:?}, blockxy: {},{}", x_index, chunk_y_index, chunk_number, collision, player_transform.translation, block_pos.x, block_pos.y);
+                }
+            }
+        }
+    }
+
+    return collisions;
 }
 
 fn handle_camera_movement(
