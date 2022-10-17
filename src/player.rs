@@ -1,7 +1,7 @@
 use bevy::{prelude::*, sprite::collide_aabb::{collide, Collision}};
 use std::{time::Duration, cmp};
 
-use crate::{CharacterCamera, world::{Terrain, CHUNK_HEIGHT, to_world_point_y, to_world_point_x}};
+use crate::{CharacterCamera, world::{Terrain, CHUNK_HEIGHT, to_world_point_y, to_world_point_x, CHUNK_WIDTH}};
 
 const PLAYER_ASSET: &str = "Ferris.png";
 const PLAYER_SIZE: f32 = 32.;
@@ -151,6 +151,9 @@ fn handle_movement(
         player_transform.translation.x += x_vel;
         player_transform.translation.y += y_vel;
 
+        // prevent going past horizontal world boundaries
+        player_transform.translation.x = f32::min(f32::max(player_transform.translation.x, 0.0), ((CHUNK_WIDTH - 1) * 32) as f32);
+
         if let Some(ref terrain) = terrain {
             let player_collision = get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
     
@@ -201,8 +204,8 @@ fn get_collisions(
 
     let mut collisions = PlayerCollision::default();
 
-    for x_index in (cmp::max(1, x_block_index) - 1)..=(x_block_index + 1) {
-        for y_index in (cmp::max(1, y_block_index) - 1)..=(y_block_index + 1) {
+    for x_index in (cmp::max(1, x_block_index) - 1)..=(cmp::min(x_block_index + 1, CHUNK_WIDTH - 1)) {
+        for y_index in (cmp::max(1, y_block_index) - 1)..=(cmp::min(y_block_index + 1, CHUNK_WIDTH - 1)) {
             let chunk_number = y_index / CHUNK_HEIGHT;
             let chunk_y_index = y_index - (chunk_number * CHUNK_HEIGHT);
 
