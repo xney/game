@@ -22,6 +22,7 @@ struct JumpDuration {
 #[derive(Eq, PartialEq)]
 enum PlayerJumpState {
     Jumping,
+    Falling,
     NonJumping,
 }
 
@@ -142,10 +143,9 @@ fn handle_movement(
             player_jump_timer.timer.tick(time.delta());
         }
 
-        //sets jump state as player touching ground
-        //TODO: THIS SHOULD BE DONE WITH COLLISION, TECHNICALLY DOUBLE JUMPING IS POSSIBLE CURRENTLY
+        //sets jump state as player falling
         if player_jump_timer.timer.just_finished() {
-            player_jump_state.state = PlayerJumpState::NonJumping;
+            player_jump_state.state = PlayerJumpState::Falling;
         }
     
         player_transform.translation.x += x_vel;
@@ -171,6 +171,8 @@ fn handle_movement(
         //Handles Gravity, Currently stops at arbitrary height
         if player_transform.translation.y > -200.0 {
             player_transform.translation.y += GRAVITY * time.delta_seconds();
+        } else {
+            player_jump_state.state = PlayerJumpState::NonJumping;
         }
 
         if let Some(ref terrain) = terrain {
@@ -178,6 +180,7 @@ fn handle_movement(
     
             if player_collision.bottom.is_some() {
                 player_transform.translation.y = player_collision.bottom.unwrap();
+                player_jump_state.state = PlayerJumpState::NonJumping;
             }
         }
     }
