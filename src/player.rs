@@ -1,7 +1,13 @@
-use bevy::{prelude::*, sprite::collide_aabb::{collide, Collision}};
-use std::{time::Duration, cmp};
+use bevy::{
+    prelude::*,
+    sprite::collide_aabb::{collide, Collision},
+};
+use std::{cmp, time::Duration};
 
-use crate::{CharacterCamera, world::{Terrain, CHUNK_HEIGHT, to_world_point_y, to_world_point_x, CHUNK_WIDTH}};
+use crate::{
+    world::{to_world_point_x, to_world_point_y, Terrain, CHUNK_HEIGHT, CHUNK_WIDTH},
+    CharacterCamera,
+};
 
 const PLAYER_ASSET: &str = "Ferris.png";
 const PLAYER_SIZE: f32 = 32.;
@@ -51,7 +57,7 @@ impl Default for PlayerCollision {
             top: None,
             right: None,
             bottom: None,
-            left: None
+            left: None,
         }
     }
 }
@@ -147,16 +153,20 @@ fn handle_movement(
         if player_jump_timer.timer.just_finished() {
             player_jump_state.state = PlayerJumpState::Falling;
         }
-    
+
         player_transform.translation.x += x_vel;
         player_transform.translation.y += y_vel;
 
         // prevent going past horizontal world boundaries
-        player_transform.translation.x = f32::min(f32::max(player_transform.translation.x, 0.0), ((CHUNK_WIDTH - 1) * 32) as f32);
+        player_transform.translation.x = f32::min(
+            f32::max(player_transform.translation.x, 0.0),
+            ((CHUNK_WIDTH - 1) * 32) as f32,
+        );
 
         if let Some(ref terrain) = terrain {
-            let player_collision = get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
-    
+            let player_collision =
+                get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
+
             if player_collision.left.is_some() {
                 player_transform.translation.x = player_collision.left.unwrap();
             }
@@ -179,8 +189,9 @@ fn handle_movement(
         }
 
         if let Some(ref terrain) = terrain {
-            let player_collision = get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
-    
+            let player_collision =
+                get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
+
             if player_collision.bottom.is_some() {
                 player_transform.translation.y = player_collision.bottom.unwrap();
                 player_jump_state.state = PlayerJumpState::NonJumping;
@@ -192,7 +203,7 @@ fn handle_movement(
 fn get_collisions(
     player_transform: &Mut<Transform>,
     terrain: &Res<Terrain>,
-    debug: bool
+    debug: bool,
 ) -> PlayerCollision {
     // Get block indices we need to check
     // Assume player is 1x1 for now
@@ -204,8 +215,11 @@ fn get_collisions(
 
     let mut collisions = PlayerCollision::default();
 
-    for x_index in (cmp::max(1, x_block_index) - 1)..=(cmp::min(x_block_index + 1, CHUNK_WIDTH - 1)) {
-        for y_index in (cmp::max(1, y_block_index) - 1)..=(cmp::min(y_block_index + 1, CHUNK_WIDTH - 1)) {
+    for x_index in (cmp::max(1, x_block_index) - 1)..=(cmp::min(x_block_index + 1, CHUNK_WIDTH - 1))
+    {
+        for y_index in
+            (cmp::max(1, y_block_index) - 1)..=(cmp::min(y_block_index + 1, CHUNK_WIDTH - 1))
+        {
             let chunk_number = y_index / CHUNK_HEIGHT;
             let chunk_y_index = y_index - (chunk_number * CHUNK_HEIGHT);
 
@@ -214,11 +228,9 @@ fn get_collisions(
                 let block_pos = Vec3 {
                     x: to_world_point_x(x_index),
                     y: to_world_point_y(chunk_y_index, chunk_number as u64),
-                    z: 2.
+                    z: 2.,
                 };
-                let collision = collide(
-                    player_transform.translation, sizes,
-                    block_pos, sizes);
+                let collision = collide(player_transform.translation, sizes, block_pos, sizes);
                 match collision {
                     Some(Collision::Top) => collisions.bottom = Some(block_pos.y + sizes.y),
                     Some(Collision::Left) => collisions.right = Some(block_pos.x - sizes.x),
