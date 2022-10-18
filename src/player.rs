@@ -5,6 +5,7 @@ use bevy::{
 use std::{cmp, time::Duration};
 
 use crate::{
+    states::GameState,
     world::{to_world_point_x, to_world_point_y, Terrain, CHUNK_HEIGHT, CHUNK_WIDTH},
     CharacterCamera,
 };
@@ -66,9 +67,13 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_startup_system(setup)
-            .add_system(handle_movement)
-            .add_system(handle_camera_movement);
+        //todo add destroy function
+        app.add_system_set(
+            SystemSet::on_update(GameState::InGame)
+                .with_system(handle_camera_movement)
+                .with_system(handle_movement),
+        )
+        .add_system_set(SystemSet::on_enter(GameState::InGame).with_system(setup));
     }
 }
 

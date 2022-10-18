@@ -29,7 +29,7 @@ impl Plugin for WorldPlugin {
                 .with_system(f2_prints_terrain)
                 .with_system(f5_writes_terrain)
                 .with_system(f6_loads_terrain)
-                .with_system(g_deletes_random_block)
+                .with_system(g_deletes_random_block),
         )
         .add_system_set(SystemSet::on_exit(states::GameState::InGame).with_system(destroy_world));
     }
@@ -386,7 +386,8 @@ fn f5_writes_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
 
             match File::create("./savedata/quicksave.sav") {
                 Ok(mut file) => {
-                    file.write_all(&encoded_vec).expect("could not write to save file");
+                    file.write_all(&encoded_vec)
+                        .expect("could not write to save file");
                 }
                 Err(e) => {
                     error!("could not create save file, {}", e);
@@ -400,7 +401,12 @@ fn f5_writes_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
 }
 
 // Make f6 read encoded terrain from file "savedterrain", clear current block entities, and link new entities
-fn f6_loads_terrain(input: Res<Input<KeyCode>>, mut commands: Commands, assets: Res<AssetServer>, query: Query<Entity, With<RenderedBlock>>) {
+fn f6_loads_terrain(
+    input: Res<Input<KeyCode>>,
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    query: Query<Entity, With<RenderedBlock>>,
+) {
     // return early if F6 was not just pressed
     if !input.just_pressed(KeyCode::F6) {
         return;
@@ -414,8 +420,8 @@ fn f6_loads_terrain(input: Res<Input<KeyCode>>, mut commands: Commands, assets: 
             commands.remove_resource::<Terrain>();
             // load the world
             let mut decoded: Terrain = bincode::decode_from_slice(&encoded_vec, BINCODE_CONFIG)
-            .unwrap()
-            .0;
+                .unwrap()
+                .0;
             load_from_vec(&mut commands, assets, &mut decoded);
             commands.insert_resource(decoded);
         }
@@ -426,11 +432,7 @@ fn f6_loads_terrain(input: Res<Input<KeyCode>>, mut commands: Commands, assets: 
 }
 
 // Load world from vec (assumes terrain is cleared)
-pub fn load_from_vec(
-    commands: &mut Commands,
-    assets: Res<AssetServer>,
-    terrain: &mut Terrain,
-) {
+pub fn load_from_vec(commands: &mut Commands, assets: Res<AssetServer>, terrain: &mut Terrain) {
     for chunk in &mut terrain.chunks {
         for x in 0..CHUNK_WIDTH {
             for y in 0..CHUNK_HEIGHT {

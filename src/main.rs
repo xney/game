@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 mod credit_image;
+mod menu;
 mod player;
 mod states;
 mod world;
@@ -14,6 +15,10 @@ struct CharacterCamera;
 
 fn main() {
     App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugin(states::StatePlugin)
+        .add_plugin(credit_image::CreditImagePlugin)
+        .add_plugin(menu::MenuPlugin)
         .insert_resource(WindowDescriptor {
             title: String::from(TITLE),
             width: WIN_W,
@@ -30,9 +35,6 @@ fn main() {
             height: 720.,
             ..default()
         })
-        .add_plugins(DefaultPlugins)
-        .add_plugin(states::StatePlugin)
-        .add_plugin(credit_image::CreditImagePlugin)
         .add_plugin(world::WorldPlugin)
         .add_plugin(player::PlayerPlugin)
         .run();
