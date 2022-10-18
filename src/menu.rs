@@ -78,12 +78,26 @@ impl Plugin for MenuPlugin {
                 SystemSet::on_exit(MenuState::FileSelect)
                     .with_system(despawn_screen::<OnFileSelectMenuScreen>),
             )
-            .add_system_set(SystemSet::on_update(MenuState::Main).with_system(button_system).with_system(menu_action))
-            .add_system_set(SystemSet::on_update(MenuState::Settings).with_system(button_system).with_system(menu_action))
             .add_system_set(
-                SystemSet::on_update(MenuState::ServerSelect).with_system(button_system).with_system(menu_action),
+                SystemSet::on_update(MenuState::Main)
+                    .with_system(button_system)
+                    .with_system(menu_action),
             )
-            .add_system_set(SystemSet::on_update(MenuState::FileSelect).with_system(button_system).with_system(menu_action));
+            .add_system_set(
+                SystemSet::on_update(MenuState::Settings)
+                    .with_system(button_system)
+                    .with_system(menu_action),
+            )
+            .add_system_set(
+                SystemSet::on_update(MenuState::ServerSelect)
+                    .with_system(button_system)
+                    .with_system(menu_action),
+            )
+            .add_system_set(
+                SystemSet::on_update(MenuState::FileSelect)
+                    .with_system(button_system)
+                    .with_system(menu_action),
+            );
     }
 }
 
@@ -246,7 +260,7 @@ fn main_menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         .spawn_bundle(TextBundle::from_section("Quit", button_text_style.clone()));
                 });
         });
-        info!("finished main menu setup");
+    info!("finished main menu setup");
 }
 
 fn settings_menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {

@@ -28,7 +28,6 @@ impl Plugin for StatePlugin {
     }
 }
 
-
 /// Simple system to facilitate changing GameState via F1 key
 /// TODO: This is good enough for debugging, but should be reworked eventually
 fn input_state_change(mut state: ResMut<State<GameState>>, input: Res<Input<KeyCode>>) {
