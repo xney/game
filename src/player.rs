@@ -186,12 +186,8 @@ fn handle_movement(
             }
         }
 
-        //Handles Gravity, Currently stops at arbitrary height
-        if player_transform.translation.y > -200.0 {
-            player_transform.translation.y += GRAVITY * time.delta_seconds();
-        } else {
-            player_jump_state.state = PlayerJumpState::NonJumping;
-        }
+        //Handles Gravity
+        player_transform.translation.y += GRAVITY * time.delta_seconds();
 
         if let Some(ref terrain) = terrain {
             let player_collision =

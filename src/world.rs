@@ -7,8 +7,8 @@ use crate::states;
 use bincode::{Decode, Encode};
 use rand::Rng;
 
-pub const CHUNK_HEIGHT: usize = 10;
-pub const CHUNK_WIDTH: usize = 10;
+pub const CHUNK_HEIGHT: usize = 32;
+pub const CHUNK_WIDTH: usize = 32;
 
 /// This is the bincode config that we should use everywhere
 /// TODO: move to a better location
@@ -472,7 +472,7 @@ fn g_deletes_random_block(
     mut terrain: ResMut<Terrain>,
 ) {
     // return early if g was not just pressed
-    if !input.just_pressed(KeyCode::G) {
+    if !input.pressed(KeyCode::G) {
         return;
     }
 
