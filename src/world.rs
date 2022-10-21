@@ -315,6 +315,44 @@ pub fn destroy_block(
     Err(DestroyBlockError::ChunkNotLoaded)
 }
 
+pub fn block_exists(x: usize, y: usize, terrain: &mut Terrain) -> bool {
+    let chunk_number = y / CHUNK_HEIGHT;
+    let block_y_in_chunk = y % CHUNK_HEIGHT;
+
+    // make sure our x is in range
+    // TODO: do this in a const fashion?
+    if x >= CHUNK_WIDTH {
+        return false;
+    }
+
+    // find if we have the chunk in our terrain
+    for chunk in &mut terrain.chunks {
+        if chunk.chunk_number == (chunk_number as u64) {
+            // we have found our chunk
+            let block_opt = &mut chunk.blocks[x][block_y_in_chunk];
+
+            match block_opt {
+                Some(block) => {
+                    match block.entity {
+                        Some(_entity) => {
+                            return true;
+                        }
+                        None => {
+                            warn!("block at ({}, {}) exists but had no entity attached!", x, y);
+                            return true;
+                        }
+                    };
+                }
+                None => {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 pub fn to_world_point_x(x: usize) -> f32 {
     return (x as f32) * 32.;
 }
