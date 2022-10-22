@@ -361,11 +361,11 @@ fn handle_mining(
 
                 //calculate bevy choords of click
                 let game_x = camera_box.center_coord.x + dist_x;
-                let game_y = camera_box.center_coord.y - dist_y;
+                let game_y = camera_box.center_coord.y + dist_y;
 
                 //calculate block coords from bevy coords
                 let block_x = (game_x / 32.).round() as usize;
-                let block_y = (game_y / 32.).round() as usize;
+                let block_y = (game_y / -32.).round() as usize;
 
                 //calculate player distance from mined blocks
                 let player_x_coord = transform.translation.x;
