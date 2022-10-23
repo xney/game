@@ -1,13 +1,17 @@
 use bevy::{
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
+    time::Stopwatch,
 };
 use std::{cmp, time::Duration};
 
 use crate::{
     states::GameState,
-    world::{to_world_point_x, to_world_point_y, Terrain, CHUNK_HEIGHT, CHUNK_WIDTH},
-    CharacterCamera,
+    world::{
+        block_exists, destroy_block, to_world_point_x, to_world_point_y, Terrain, CHUNK_HEIGHT,
+        CHUNK_WIDTH,
+    },
+    CharacterCamera, WIN_H, WIN_W,
 };
 
 const PLAYER_ASSET: &str = "Ferris.png";
@@ -15,6 +19,8 @@ const PLAYER_SIZE: f32 = 32.;
 const PLAYER_START_COORDS: [f32; 3] = [0., 0., 2.];
 const PLAYER_SPEED: f32 = 500.;
 const PLAYER_JUMP_DURATION: f32 = 0.1; //seconds
+const PLAYER_MINE_DURATION: f32 = 2.; //seconds
+const PLAYER_MINE_RADIUS: f32 = 3.; //number of blocks
 const GRAVITY: f32 = -650.0;
 const CAMERA_BOUNDS_SIZE: [f32; 2] = [1000., 500.];
 
@@ -24,6 +30,11 @@ struct Player;
 #[derive(Component)]
 struct JumpDuration {
     timer: Timer,
+}
+
+#[derive(Component)]
+struct MineDuration {
+    timer: Stopwatch,
 }
 
 #[derive(Eq, PartialEq)]
@@ -71,7 +82,8 @@ impl Plugin for PlayerPlugin {
         app.add_system_set(
             SystemSet::on_update(GameState::InGame)
                 .with_system(handle_camera_movement)
-                .with_system(handle_movement),
+                .with_system(handle_movement)
+                .with_system(handle_mining),
         )
         .add_system_set(SystemSet::on_enter(GameState::InGame).with_system(setup));
     }
@@ -101,6 +113,9 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
         .insert(Player)
         .insert(JumpDuration {
             timer: Timer::new(Duration::from_secs_f32(PLAYER_JUMP_DURATION), false),
+        })
+        .insert(MineDuration {
+            timer: Stopwatch::new(),
         })
         .insert(JumpState {
             state: PlayerJumpState::default(),
@@ -252,6 +267,7 @@ fn get_collisions(
 fn handle_camera_movement(
     mut query: Query<(&Transform, &mut CameraBoundsBox, With<Player>)>,
     mut camera_query: Query<(&mut Transform, With<CharacterCamera>, Without<Player>)>,
+    input: Res<Input<KeyCode>>,
 ) {
     for (player_transform, mut camera_box, _player) in query.iter_mut() {
         //Likely has to be changed when multiplayer is added
@@ -291,6 +307,96 @@ fn handle_camera_movement(
         if player_transform.translation.y <= bottom_bound {
             camera_box.center_coord[1] += player_transform.translation.y - bottom_bound;
             camera.0.translation.y += player_transform.translation.y - bottom_bound;
+        }
+
+        //DEBUGGING: Free Roam Camera with Arrow Keys
+        if input.pressed(KeyCode::Right) {
+            camera.0.translation.x += 25.;
+        }
+        if input.pressed(KeyCode::Left) {
+            camera.0.translation.x -= 25.;
+        }
+        if input.pressed(KeyCode::Up) {
+            camera.0.translation.y += 25.;
+        }
+        if input.pressed(KeyCode::Down) {
+            camera.0.translation.y -= 25.;
+        }
+
+        //Pressing R returns camera to player after free roam
+        if input.pressed(KeyCode::R) {
+            camera.0.translation.x = camera_box.center_coord[0];
+            camera.0.translation.y = camera_box.center_coord[1];
+        }
+    }
+}
+
+fn handle_mining(
+    mut windows: ResMut<Windows>,
+    mouse: Res<Input<MouseButton>>,
+    mut query: Query<(
+        &mut Transform,
+        &mut CameraBoundsBox,
+        &mut MineDuration,
+        With<Player>,
+    )>,
+    mut commands: Commands,
+    mut terrain: ResMut<Terrain>,
+    time: Res<Time>,
+) {
+    let window = windows.get_primary_mut();
+
+    if !window.is_none() {
+        let win = window.unwrap();
+
+        for (transform, camera_box, mut mine_timer, _player) in query.iter_mut() {
+            let ms = win.cursor_position();
+
+            if !ms.is_none() {
+                let mouse_pos = ms.unwrap();
+
+                //calculate distance of click from camera center
+                let dist_x = mouse_pos.x - (WIN_W / 2.);
+                let dist_y = mouse_pos.y - (WIN_H / 2.);
+
+                //calculate bevy choords of click
+                let game_x = camera_box.center_coord.x + dist_x;
+                let game_y = camera_box.center_coord.y + dist_y;
+
+                //calculate block coords from bevy coords
+                let block_x = (game_x / 32.).round() as usize;
+                let block_y = (game_y / -32.).round() as usize;
+
+                //calculate player distance from mined blocks
+                let player_x_coord = transform.translation.x;
+                let player_y_coord = transform.translation.y;
+
+                let player_x = (player_x_coord / 32.).round();
+                let player_y = (player_y_coord / -32.).round();
+
+                let mine_dist = ((block_x as f32 - player_x).powi(2)
+                    + (block_y as f32 - player_y).powi(2) as f32)
+                    .sqrt();
+
+                if mouse.pressed(MouseButton::Left)
+                    && mine_dist <= PLAYER_MINE_RADIUS
+                    && block_exists(block_x, block_y, &mut terrain)
+                {
+                    if mine_timer.timer.elapsed_secs() >= PLAYER_MINE_DURATION {
+                        let _res = destroy_block(block_x, block_y, &mut commands, &mut terrain);
+                        mine_timer.timer.reset();
+                    }
+
+                    mine_timer.timer.tick(time.delta());
+                } else if mouse.just_released(MouseButton::Left) {
+                    mine_timer.timer.reset();
+                }
+
+                //DEBUGGING: Right click to instantly mine
+                if mouse.pressed(MouseButton::Right) {
+                    let _res = destroy_block(block_x, block_y, &mut commands, &mut terrain);
+                }
+            }
         }
     }
 }
