@@ -3,19 +3,13 @@ use std::fs::*;
 use std::io::Write;
 
 use crate::states;
+use crate::network::BINCODE_CONFIG;
 
 use bincode::{Decode, Encode};
 use rand::Rng;
 
 pub const CHUNK_HEIGHT: usize = 32;
 pub const CHUNK_WIDTH: usize = 32;
-
-/// This is the bincode config that we should use everywhere
-/// TODO: move to a better location
-const BINCODE_CONFIG: bincode::config::Configuration = bincode::config::standard()
-    .with_little_endian()
-    .with_variable_int_encoding()
-    .write_fixed_array_length();
 
 pub struct WorldPlugin;
 
