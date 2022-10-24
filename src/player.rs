@@ -199,12 +199,11 @@ fn handle_movement(
             if player_collision.bottom.is_some() {
                 player_transform.translation.y = player_collision.bottom.unwrap();
             }
-            
         }
 
         //lse{
-            //Handles Gravity
-            player_transform.translation.y += GRAVITY * time.delta_seconds();
+        //Handles Gravity
+        player_transform.translation.y += GRAVITY * time.delta_seconds();
         //}
         if let Some(ref terrain) = terrain {
             let player_collision =
@@ -235,8 +234,8 @@ fn get_collisions(
 
     for x_index in (cmp::max(1, x_block_index) - 1)..=(cmp::min(x_block_index + 1, CHUNK_WIDTH - 1))
     {
-        for y_index in
-            (cmp::max(1, y_block_index) - 1)..=y_block_index+1//(cmp::min(y_block_index + 1, CHUNK_HEIGHT - 1))
+        for y_index in (cmp::max(1, y_block_index) - 1)..=y_block_index + 1
+        //(cmp::min(y_block_index + 1, CHUNK_HEIGHT - 1))
         {
             let chunk_number = y_index / CHUNK_HEIGHT;
             let chunk_y_index = y_index - (chunk_number * CHUNK_HEIGHT);

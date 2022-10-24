@@ -2,8 +2,10 @@ use bevy::prelude::*;
 use std::fs::*;
 use std::io::Write;
 
-use crate::{states, procedural_functions::{self, generate_random_vein, generate_random_vein_count, dist_to_vein}};
-
+use crate::{
+    procedural_functions::{self, dist_to_vein, generate_random_vein, generate_random_vein_count},
+    states,
+};
 
 use bincode::{Decode, Encode};
 use rand::Rng;
@@ -104,15 +106,15 @@ impl Terrain {
 
         let chunks = (0..num_chunks).map(|d| Chunk::new(d, &veins)).collect();
 
-        Terrain {
-            veins,
-            chunks,
-        }
+        Terrain { veins, chunks }
     }
 
     /// Creates a terrain with no chunks
     fn empty() -> Terrain {
-        Terrain { chunks: Vec::new(), veins: Vec::new() }
+        Terrain {
+            chunks: Vec::new(),
+            veins: Vec::new(),
+        }
     }
 }
 
@@ -143,12 +145,26 @@ impl Chunk {
                 for vein in veins {
                     // Only look at veins originating in previous or current chunk
                     if (vein.chunk_number == depth - 1) || (vein.chunk_number == depth) {
-                        let y_offset = if depth > vein.chunk_number { CHUNK_HEIGHT } else { 0 };
+                        let y_offset = if depth > vein.chunk_number {
+                            CHUNK_HEIGHT
+                        } else {
+                            0
+                        };
 
                         let dist = dist_to_vein(vein, x as f32, (y + y_offset) as f32);
 
                         if dist < (vein.thickness_sq / 2.).into() {
-                            info!("Block at chunk {} {},{} in vein from {},{} to {},{} ({})", depth, x, y, vein.start_x, vein.start_y, vein.end_x, vein.end_y, dist);
+                            info!(
+                                "Block at chunk {} {},{} in vein from {},{} to {},{} ({})",
+                                depth,
+                                x,
+                                y,
+                                vein.start_x,
+                                vein.start_y,
+                                vein.end_x,
+                                vein.end_y,
+                                dist
+                            );
                             block_type = vein.block_type;
                         }
                     }
@@ -174,13 +190,14 @@ impl Chunk {
 
         let random_vals = procedural_functions::generate_random_values(
             BASE_SEED, //Use hard-coded seed for now
-            16,   //16 random values, so 16 points to interpolate between
-            1,
-            16, //Peaks as high as 16 blocks
-            );
+            16,        //16 random values, so 16 points to interpolate between
+            1, 16, //Peaks as high as 16 blocks
+        );
         // Loop through chunk, filling in where blocks should be
         for x in 0..CHUNK_WIDTH {
-            for y in procedural_functions::slice_pos_x(x,&random_vals).round() as usize-1..CHUNK_HEIGHT {
+            for y in procedural_functions::slice_pos_x(x, &random_vals).round() as usize - 1
+                ..CHUNK_HEIGHT
+            {
                 let mut block_type = BlockType::Sandstone;
 
                 // Check if this is within the bounds of an ore vein
@@ -190,7 +207,10 @@ impl Chunk {
                         let dist = dist_to_vein(vein, x as f32, y as f32);
 
                         if dist < (vein.thickness_sq / 2.).into() {
-                            info!("Block at chunk 0 {},{} in vein from {},{} to {},{} ({})", x, y, vein.start_x, vein.start_y, vein.end_x, vein.end_y, dist);
+                            info!(
+                                "Block at chunk 0 {},{} in vein from {},{} to {},{} ({})",
+                                x, y, vein.start_x, vein.start_y, vein.end_x, vein.end_y, dist
+                            );
                             block_type = vein.block_type;
                         }
                     }
@@ -202,7 +222,7 @@ impl Chunk {
                 });
             }
         }
-        
+
         return c;
     }
 }
@@ -216,7 +236,7 @@ pub struct Vein {
     pub start_y: usize,
     pub end_x: i16, // i16 because they can hypothetically be negative - which won't break anything
     pub end_y: i16,
-    pub thickness_sq: f32 // squared thickness - so we don't need to do square roots
+    pub thickness_sq: f32, // squared thickness - so we don't need to do square roots
 }
 
 impl Vein {
@@ -307,10 +327,7 @@ impl BlockType {
     }
 }
 
-pub fn generate_chunk_veins(
-    chunk_number: u64,
-    terrain: &mut Terrain,
-) {
+pub fn generate_chunk_veins(chunk_number: u64, terrain: &mut Terrain) {
     for vein_number in 0..generate_random_vein_count(BASE_SEED, chunk_number) {
         terrain.veins.push(Vein::new(chunk_number, vein_number));
     }
@@ -367,8 +384,8 @@ pub fn spawn_chunk(
 pub fn create_surface_chunk(
     commands: &mut Commands,
     assets: &Res<AssetServer>,
-    terrain: &mut Terrain
-){
+    terrain: &mut Terrain,
+) {
     generate_chunk_veins(0, terrain);
 
     let mut chunk = Chunk::new_surface(&(terrain.veins));
@@ -408,8 +425,6 @@ pub fn create_surface_chunk(
     }
 
     terrain.chunks.push(chunk);
-
-
 }
 
 #[derive(Debug)]
