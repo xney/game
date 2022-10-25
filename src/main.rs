@@ -6,6 +6,7 @@ mod player;
 mod procedural_functions;
 mod states;
 mod world;
+mod network;
 
 const TITLE: &str = "The Krusty Krabs";
 const WIN_W: f32 = 1280.;
@@ -40,5 +41,7 @@ fn main() {
         })
         .add_plugin(world::WorldPlugin)
         .add_plugin(player::PlayerPlugin)
+        .add_plugin(network::client::ClientPlugin)
+        .add_plugin(network::server::ServerPlugin)
         .run();
 }
