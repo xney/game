@@ -3,9 +3,9 @@ use bevy::prelude::*;
 mod credit_image;
 mod menu;
 mod player;
+mod procedural_functions;
 mod states;
 mod world;
-mod procedural_functions;
 
 const TITLE: &str = "The Krusty Krabs";
 const WIN_W: f32 = 1280.;
@@ -35,7 +35,7 @@ fn main() {
             title: "Game".to_string(),
             width: 1280.,
             height: 720.,
-            
+
             ..default()
         })
         .add_plugin(world::WorldPlugin)

@@ -2,14 +2,18 @@ use bevy::prelude::*;
 use std::fs::*;
 use std::io::Write;
 
-use crate::{states, procedural_functions};
-
+use crate::{
+    procedural_functions::{self, dist_to_vein, generate_random_vein, generate_random_vein_count},
+    states,
+};
 
 use bincode::{Decode, Encode};
 use rand::Rng;
 
 pub const CHUNK_HEIGHT: usize = 32;
 pub const CHUNK_WIDTH: usize = 128;
+
+const BASE_SEED: u64 = 82981925813;
 
 /// This is the bincode config that we should use everywhere
 /// TODO: move to a better location
@@ -82,20 +86,35 @@ pub struct Terrain {
     /// Vector of chunks, each one contains its own chunk_number
     /// TODO: potentially convert into a symbol table for faster lookups?
     pub chunks: Vec<Chunk>,
+    /// Vector of ore veins - these are generated each time a chunk is generated
+    /// Need to be chunk-independent as they can cross chunks
+    veins: Vec<Vein>,
 }
 
 impl Terrain {
     /// Create a terrain with specified number of chunks
     /// Chunks contain default blocks and are numbered from 0 to len-1
     fn new(num_chunks: u64) -> Terrain {
-        Terrain {
-            chunks: (0..num_chunks).map(|d| Chunk::new(d)).collect(),
+        // Generate veins for each chunk before generating the chunks so chunks can use them
+        let mut veins: Vec<Vein> = Vec::new();
+        // Generate veins
+        for chunk_number in 0..num_chunks {
+            for vein_number in 0..generate_random_vein_count(BASE_SEED, chunk_number) {
+                veins.push(Vein::new(chunk_number, vein_number));
+            }
         }
+
+        let chunks = (0..num_chunks).map(|d| Chunk::new(d, &veins)).collect();
+
+        Terrain { veins, chunks }
     }
 
     /// Creates a terrain with no chunks
     fn empty() -> Terrain {
-        Terrain { chunks: Vec::new() }
+        Terrain {
+            chunks: Vec::new(),
+            veins: Vec::new(),
+        }
     }
 }
 
@@ -110,19 +129,58 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    pub fn new(depth: u64) -> Self {
+    pub fn new(depth: u64, veins: &Vec<Vein>) -> Self {
         // For now: populate entire Chunk with Sandstone
-        let c = Chunk {
-            blocks: [[Some(Block {
-                block_type: BlockType::Sandstone,
-                entity: None,
-            }); CHUNK_WIDTH]; CHUNK_HEIGHT],
+        let mut c = Chunk {
+            blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
             chunk_number: depth,
         };
+
+        // Loop through chunk, filling in where blocks should be
+        for x in 0..CHUNK_WIDTH {
+            for y in 0..CHUNK_HEIGHT {
+                let mut block_type = BlockType::Sandstone;
+
+                // Check if this is within the bounds of an ore vein
+                for vein in veins {
+                    // Only look at veins originating in previous or current chunk
+                    if (vein.chunk_number == depth - 1) || (vein.chunk_number == depth) {
+                        let y_offset = if depth > vein.chunk_number {
+                            CHUNK_HEIGHT
+                        } else {
+                            0
+                        };
+
+                        let dist = dist_to_vein(vein, x as f32, (y + y_offset) as f32);
+
+                        if dist < (vein.thickness_sq / 2.).into() {
+                            info!(
+                                "Block at chunk {} {},{} in vein from {},{} to {},{} ({})",
+                                depth,
+                                x,
+                                y,
+                                vein.start_x,
+                                vein.start_y,
+                                vein.end_x,
+                                vein.end_y,
+                                dist
+                            );
+                            block_type = vein.block_type;
+                        }
+                    }
+                }
+
+                c.blocks[y][x] = Some(Block {
+                    block_type,
+                    entity: None,
+                });
+            }
+        }
+
         return c;
     }
 
-    pub fn new_surface() -> Self {
+    pub fn new_surface(veins: &Vec<Vein>) -> Self {
         // Create surface chunk with perlin slice functions
 
         let mut c = Chunk {
@@ -131,22 +189,60 @@ impl Chunk {
         };
 
         let random_vals = procedural_functions::generate_random_values(
-            82981925815, //Use hard-coded seed for now
-            16,   //16 random values, so 16 points to interpolate between
-            1,
-            16, //Peaks as high as 16 blocks
-            );
+            BASE_SEED, //Use hard-coded seed for now
+            16,        //16 random values, so 16 points to interpolate between
+            1, 16, //Peaks as high as 16 blocks
+        );
         // Loop through chunk, filling in where blocks should be
         for x in 0..CHUNK_WIDTH {
-            for y in procedural_functions::slice_pos_x(x,&random_vals).round() as usize-1..CHUNK_HEIGHT {
+            for y in procedural_functions::slice_pos_x(x, &random_vals).round() as usize - 1
+                ..CHUNK_HEIGHT
+            {
+                let mut block_type = BlockType::Sandstone;
+
+                // Check if this is within the bounds of an ore vein
+                for vein in veins {
+                    // Only look at veins originating in previous or current chunk
+                    if vein.chunk_number == 0 {
+                        let dist = dist_to_vein(vein, x as f32, y as f32);
+
+                        if dist < (vein.thickness_sq / 2.).into() {
+                            info!(
+                                "Block at chunk 0 {},{} in vein from {},{} to {},{} ({})",
+                                x, y, vein.start_x, vein.start_y, vein.end_x, vein.end_y, dist
+                            );
+                            block_type = vein.block_type;
+                        }
+                    }
+                }
+
                 c.blocks[y][x] = Some(Block {
-                    block_type: BlockType::Sandstone,
+                    block_type,
                     entity: None,
                 });
             }
         }
-        
+
         return c;
+    }
+}
+
+/// Represents an ore vein; stored in the Terrain resource
+#[derive(Encode, Decode, Debug, PartialEq)]
+pub struct Vein {
+    pub block_type: BlockType,
+    pub chunk_number: u64,
+    pub start_x: usize,
+    pub start_y: usize,
+    pub end_x: i16, // i16 because they can hypothetically be negative - which won't break anything
+    pub end_y: i16,
+    pub thickness_sq: f32, // squared thickness - so we don't need to do square roots
+}
+
+impl Vein {
+    pub fn new(chunk_number: u64, vein_number: u64) -> Self {
+        // Hard-coded seed for now
+        generate_random_vein(BASE_SEED, chunk_number, vein_number)
     }
 }
 
@@ -218,6 +314,7 @@ pub struct RenderedBlock;
 #[derive(Copy, Clone, Debug, Encode, Decode, PartialEq)]
 pub enum BlockType {
     Sandstone,
+    Coal,
 }
 
 impl BlockType {
@@ -225,7 +322,14 @@ impl BlockType {
     const fn image_file_path(&self) -> &str {
         match self {
             BlockType::Sandstone => "Sandstone.png",
+            BlockType::Coal => "Coal.png",
         }
+    }
+}
+
+pub fn generate_chunk_veins(chunk_number: u64, terrain: &mut Terrain) {
+    for vein_number in 0..generate_random_vein_count(BASE_SEED, chunk_number) {
+        terrain.veins.push(Vein::new(chunk_number, vein_number));
     }
 }
 
@@ -236,7 +340,9 @@ pub fn spawn_chunk(
     assets: Res<AssetServer>,
     terrain: &mut Terrain,
 ) {
-    let mut chunk = Chunk::new(chunk_number);
+    generate_chunk_veins(chunk_number, terrain);
+
+    let mut chunk = Chunk::new(chunk_number, &(terrain.veins));
 
     // Loop through entire chunk (2D Array)
     for x in 0..CHUNK_WIDTH {
@@ -278,10 +384,13 @@ pub fn spawn_chunk(
 pub fn create_surface_chunk(
     commands: &mut Commands,
     assets: &Res<AssetServer>,
-    terrain: &mut Terrain
-){
-    let mut chunk = Chunk::new_surface();
-// Loop through entire chunk (2D Array)
+    terrain: &mut Terrain,
+) {
+    generate_chunk_veins(0, terrain);
+
+    let mut chunk = Chunk::new_surface(&(terrain.veins));
+
+    // Loop through entire chunk (2D Array)
     for x in 0..CHUNK_WIDTH {
         for y in 0..CHUNK_HEIGHT {
             let block_opt = &mut chunk.blocks[y][x];
@@ -316,8 +425,6 @@ pub fn create_surface_chunk(
     }
 
     terrain.chunks.push(chunk);
-
-
 }
 
 #[derive(Debug)]
@@ -441,7 +548,7 @@ fn print_encoding_sizes() {
         Err(e) => error!("unable to encode block: {}", e),
     }
 
-    match bincode::encode_to_vec(Chunk::new(0), BINCODE_CONFIG) {
+    match bincode::encode_to_vec(Chunk::new(0, &Vec::new()), BINCODE_CONFIG) {
         Ok(chunk) => info!("a default chunk is {} bytes", chunk.len()),
         Err(e) => error!("unable to encode chunk: {}", e),
     }
@@ -590,8 +697,8 @@ fn g_deletes_random_block(
     }
 
     let (x, y) = (
-        rand::thread_rng().gen_range(0, CHUNK_WIDTH),
-        rand::thread_rng().gen_range(0, CHUNK_HEIGHT),
+        rand::thread_rng().gen_range(0..CHUNK_WIDTH),
+        rand::thread_rng().gen_range(0..CHUNK_HEIGHT),
     );
 
     // don't care about result here
@@ -616,7 +723,7 @@ mod tests {
     #[test]
     fn encode_decode_chunk() {
         let original = {
-            let mut chunk = Chunk::new(0);
+            let mut chunk = Chunk::new(0, &Vec::new());
             // change some block
             chunk.blocks[1][1] = Some(Block::new(BlockType::Sandstone));
             chunk
@@ -648,7 +755,7 @@ mod tests {
         let block_size = bincode::encode_to_vec(Block::new(BlockType::Sandstone), BINCODE_CONFIG)
             .unwrap()
             .len();
-        let chunk_size = bincode::encode_to_vec(Chunk::new(0), BINCODE_CONFIG)
+        let chunk_size = bincode::encode_to_vec(Chunk::new(0, &Vec::new()), BINCODE_CONFIG)
             .unwrap()
             .len();
         let terrain_size = bincode::encode_to_vec(Terrain::new(1), BINCODE_CONFIG)
