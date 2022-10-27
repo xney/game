@@ -8,8 +8,8 @@ use std::{cmp, time::Duration};
 use crate::{
     states::GameState,
     world::{
-        block_exists, destroy_block, to_world_point_x, to_world_point_y, Terrain, CHUNK_HEIGHT,
-        CHUNK_WIDTH,
+        block_exists, derender_chunk, destroy_block, render_chunk, spawn_chunk, to_world_point_x,
+        to_world_point_y, Terrain, CHUNK_HEIGHT, CHUNK_WIDTH,
     },
     CharacterCamera, WIN_H, WIN_W,
 };
@@ -83,7 +83,8 @@ impl Plugin for PlayerPlugin {
             SystemSet::on_update(GameState::InGame)
                 .with_system(handle_camera_movement)
                 .with_system(handle_movement)
-                .with_system(handle_mining),
+                .with_system(handle_mining)
+                .with_system(handle_terrain),
         )
         .add_system_set(SystemSet::on_enter(GameState::InGame).with_system(setup));
     }
@@ -398,6 +399,53 @@ fn handle_mining(
                     let _res = destroy_block(block_x, block_y, &mut commands, &mut terrain);
                 }
             }
+        }
+    }
+}
+
+fn handle_terrain(
+    mut query: Query<(&mut Transform, With<Player>)>,
+    mut terrain: ResMut<Terrain>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    for (player_transform, _player) in query.iter_mut() {
+        //player_transform.translation.y / CHUNK_HEIGHT
+        //300/32 > 16
+        let chunk_size = terrain.chunks.len();
+        let chunk_number = -player_transform.translation.y as usize / CHUNK_HEIGHT / 32;
+        let mid_point = ((chunk_number + 1) * CHUNK_HEIGHT * 32) - CHUNK_HEIGHT * 16;
+
+        //If you are beneath the midpoint then you either spawn or render chunk
+        if -player_transform.translation.y >= mid_point as f32 {
+            if chunk_size - 1 == chunk_number {
+                spawn_chunk(chunk_size as u64, &mut commands, &assets, &mut terrain);
+            } else if let Some(chunk) = terrain.chunks.get_mut(chunk_number + 1) {
+                if !chunk.rendered {
+                    render_chunk(chunk.chunk_number, &mut commands, &assets, chunk)
+                }
+            };
+            if chunk_number > 0 {
+                if let Some(chunk) = terrain.chunks.get_mut(chunk_number - 1) {
+                    if chunk.rendered {
+                        derender_chunk(&mut commands, chunk);
+                    }
+                };
+            }
+        } else {
+            if let Some(chunk) = terrain
+                .chunks
+                .get_mut(cmp::max(0, (chunk_number as i32) - 1) as usize)
+            {
+                if !chunk.rendered {
+                    render_chunk(chunk.chunk_number, &mut commands, &assets, chunk)
+                }
+            };
+            if let Some(chunk) = terrain.chunks.get_mut(chunk_number + 1) {
+                if chunk.rendered {
+                    derender_chunk(&mut commands, chunk);
+                }
+            };
         }
     }
 }
