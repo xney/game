@@ -41,8 +41,8 @@ pub fn create_world(mut commands: Commands, assets: Res<AssetServer>) {
     let mut terrain = Terrain::empty();
 
     // Generate one chunk
-    create_surface_chunk(&mut commands, &assets, &mut terrain);
-    spawn_chunk(1, &mut commands, assets, &mut terrain);
+    create_surface_chunk(&mut commands, assets, &mut terrain);
+  
 
     let locations_to_destroy = [(5, 5), (5, 5), (300, 300), (5, 500), (2, 8)];
 
@@ -118,8 +118,9 @@ impl Terrain {
 pub struct Chunk {
     /// 2D array [x, y]
     pub blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT],
+    pub rendered: bool,
     /// starting row for blocks is chunk_number * CHUNK_HEIGHT
-    chunk_number: u64,
+    pub chunk_number: u64,
 }
 
 impl Chunk {
@@ -128,6 +129,7 @@ impl Chunk {
         let mut c = Chunk {
             blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
             chunk_number: depth,
+            rendered:false
         };
 
         // Loop through chunk, filling in where blocks should be
@@ -180,6 +182,7 @@ impl Chunk {
         let mut c = Chunk {
             blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
             chunk_number: 0,
+            rendered: false,
         };
 
         let random_vals = procedural_functions::generate_random_values(
@@ -331,18 +334,31 @@ pub fn generate_chunk_veins(chunk_number: u64, terrain: &mut Terrain) {
 pub fn spawn_chunk(
     chunk_number: u64,
     commands: &mut Commands,
-    assets: Res<AssetServer>,
+    assets: &Res<AssetServer>,
     terrain: &mut Terrain,
 ) {
     generate_chunk_veins(chunk_number, terrain);
 
     let mut chunk = Chunk::new(chunk_number, &(terrain.veins));
 
-    // Loop through entire chunk (2D Array)
+    //Calls function to loop through and create the entities and render them
+    render_chunk(chunk_number,commands,assets,&mut chunk);
+    // add the chunk to our terrain resource
+    terrain.chunks.push(chunk);
+}
+pub fn render_chunk(
+    chunk_number: u64,
+    commands: &mut Commands,
+    assets: &Res<AssetServer>,
+    chunk: &mut Chunk,
+)
+{
+    //spawns each entity and asigns it
+    chunk.rendered=true;
     for x in 0..CHUNK_WIDTH {
         for y in 0..CHUNK_HEIGHT {
             let block_opt = &mut chunk.blocks[y][x];
-
+            
             // if there is a block at this location
             if let Some(block) = block_opt {
                 // spawn in the sprite for the block
@@ -369,55 +385,42 @@ pub fn spawn_chunk(
             // else there is no block and we don't have to spawn any sprite
         }
     }
-
-    // add the chunk to our terrain resource
-    terrain.chunks.push(chunk);
+}
+pub fn derender_chunk(
+    commands: &mut Commands,
+    chunk: &mut Chunk,
+)
+{
+    //Despawns each entity and un asigns them
+    chunk.rendered=false;
+    for x in 0..CHUNK_WIDTH {
+        for y in 0..CHUNK_HEIGHT {
+            let block_opt = &mut chunk.blocks[y][x];
+            if let Some(block) = block_opt {
+                match block.entity {
+                    Some(entity) => {
+                        commands.entity(entity).despawn();
+                    }
+                    None => {}
+                };
+                block.entity = None;
+            }
+        }
+    }
 }
 
 /// Create all blocks in surface chunk as actual entities (and store references to entity in chunk.blocks)
 pub fn create_surface_chunk(
     commands: &mut Commands,
-    assets: &Res<AssetServer>,
+    assets: Res<AssetServer>,
     terrain: &mut Terrain,
 ) {
     generate_chunk_veins(0, terrain);
 
     let mut chunk = Chunk::new_surface(&(terrain.veins));
 
-    // Loop through entire chunk (2D Array)
-    for x in 0..CHUNK_WIDTH {
-        for y in 0..CHUNK_HEIGHT {
-            let block_opt = &mut chunk.blocks[y][x];
-
-            // if there is a block at this location
-            if let Some(block) = block_opt {
-                // spawn in the sprite for the block
-                let entity = commands
-                    .spawn()
-                    .insert_bundle(SpriteBundle {
-                        texture: assets.load(block.block_type.image_file_path()),
-                        transform: Transform {
-                            translation: Vec3::from_array([
-                                to_world_point_x(x),
-                                to_world_point_y(y, 0),
-                                1.,
-                            ]),
-                            ..default()
-                        },
-                        ..default()
-                    })
-                    .insert(RenderedBlock)
-                    .id();
-
-                // link the entity to the block
-                block.entity = Option::Some(entity);
-            }
-            // else there is no block and we don't have to spawn any sprite
-        }
-
-        //terrain.chunks.push(chunk);
-    }
-
+    //Calls function to loop through and create the entities and render them
+    render_chunk(0,commands,&assets,&mut chunk);
     terrain.chunks.push(chunk);
 }
 
