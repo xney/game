@@ -127,7 +127,11 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
         });
 }
 
-fn destroy_player(query: Query<Entity, With<Player>>, mut camera_query: Query<(&mut Transform, With<CharacterCamera>, Without<Player>)>, mut commands: Commands) {
+fn destroy_player(
+    query: Query<Entity, With<Player>>,
+    mut camera_query: Query<(&mut Transform, With<CharacterCamera>, Without<Player>)>,
+    mut commands: Commands,
+) {
     for entity in query.iter() {
         commands.entity(entity).despawn();
     }
@@ -145,8 +149,6 @@ fn destroy_player(query: Query<Entity, With<Player>>, mut camera_query: Query<(&
     commands.remove_resource::<JumpDuration>();
     commands.remove_resource::<Camera2dBundle>();
     commands.remove_resource::<Transform>();
-
-
 }
 
 //Handles player movement, gravity, jumpstate

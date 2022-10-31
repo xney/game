@@ -4,7 +4,10 @@ use std::io::Write;
 
 use crate::{
     network::BINCODE_CONFIG,
-    procedural_functions::{self, dist_to_vein, generate_random_vein, generate_random_vein_count, generate_random_cave, generate_random_cave_count, is_point_in_cave},
+    procedural_functions::{
+        self, dist_to_vein, generate_random_cave, generate_random_cave_count, generate_random_vein,
+        generate_random_vein_count, is_point_in_cave,
+    },
     states,
 };
 
@@ -102,9 +105,15 @@ impl Terrain {
             }
         }
 
-        let chunks = (0..num_chunks).map(|d| Chunk::new(d, &veins, &caves)).collect();
+        let chunks = (0..num_chunks)
+            .map(|d| Chunk::new(d, &veins, &caves))
+            .collect();
 
-        Terrain {caves, veins, chunks }
+        Terrain {
+            caves,
+            veins,
+            chunks,
+        }
     }
 
     /// Creates a terrain with no chunks
@@ -186,7 +195,6 @@ impl Chunk {
                         if is_point_in_cave(cave, x, y + y_offset, BASE_SEED) {
                             block_type = cave.block_type;
                         }
-
                     }
                 }
 
@@ -195,11 +203,9 @@ impl Chunk {
                         block_type,
                         entity: None,
                     });
-                }
-                else {
+                } else {
                     c.blocks[y][x] = None;
                 }
-
             }
         }
 
@@ -359,7 +365,7 @@ pub struct RenderedBlock;
 pub enum BlockType {
     Sandstone,
     Coal,
-    CaveVoid
+    CaveVoid,
 }
 
 impl BlockType {
@@ -803,9 +809,10 @@ mod tests {
         let block_size = bincode::encode_to_vec(Block::new(BlockType::Sandstone), BINCODE_CONFIG)
             .unwrap()
             .len();
-        let chunk_size = bincode::encode_to_vec(Chunk::new(0, &Vec::new(), &Vec::new()), BINCODE_CONFIG)
-            .unwrap()
-            .len();
+        let chunk_size =
+            bincode::encode_to_vec(Chunk::new(0, &Vec::new(), &Vec::new()), BINCODE_CONFIG)
+                .unwrap()
+                .len();
         let terrain_size = bincode::encode_to_vec(Terrain::new(1), BINCODE_CONFIG)
             .unwrap()
             .len();

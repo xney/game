@@ -2,11 +2,11 @@ use bevy::prelude::*;
 
 mod credit_image;
 mod menu;
+mod network;
 mod player;
 mod procedural_functions;
 mod states;
 mod world;
-mod network;
 
 const TITLE: &str = "The Krusty Krabs";
 const WIN_W: f32 = 1280.;
