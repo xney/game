@@ -5,9 +5,14 @@ use std::{
 
 use bevy::prelude::info;
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use rand_distr::{Binomial, Distribution};
+use rand_distr::{Normal, Binomial, Distribution};
 
-use crate::world::{BlockType, Vein, CHUNK_HEIGHT, CHUNK_WIDTH};
+use crate::world::{BlockType, Vein, Cave, CHUNK_HEIGHT, CHUNK_WIDTH};
+
+const APPROX_CAVES_PER_CHUNK: f64 = 6.0;
+const AVG_CAVE_WIDTH: f32 = 6.;
+const CAVE_STANDARD_DEV: f32 = 2.;
+const CAVE_BOARDER_NOISE :f32 = 1.5;
 
 pub fn generate_seed(base_seed: u64, additional_data: Vec<u64>) -> u64 {
     let mut s = DefaultHasher::new();
@@ -119,4 +124,54 @@ pub fn dist_to_vein(vein: &Vein, x: f32, y: f32) -> f32 {
     proj = (proj.min(1.0)).max(0.0);
 
     dist_sq(x, y, vx1 + (proj * (vx2 - vx1)), vy1 + (proj * (vy2 - vy1)))
+}
+
+pub fn generate_random_cave_count(seed: u64, chunk_number: u64) -> u64 {
+    let mut rand = StdRng::seed_from_u64(generate_seed(seed, vec![chunk_number]));
+    let bindist = Binomial::new(
+        (CHUNK_WIDTH * CHUNK_HEIGHT) as u64,
+        APPROX_CAVES_PER_CHUNK / (CHUNK_WIDTH * CHUNK_HEIGHT) as f64,
+    )
+    .unwrap();
+    let value = bindist.sample(&mut rand);
+
+    return value;
+}
+
+pub fn generate_random_cave(seed: u64, chunk_number: u64, cave_number: u64) -> Cave {
+    let mut rand = StdRng::seed_from_u64(generate_seed(seed, vec![chunk_number, cave_number]));
+
+    let start_x = rand.gen_range(0..CHUNK_WIDTH);
+    let start_y = rand.gen_range(0..CHUNK_HEIGHT);
+
+    let a = Normal::new(AVG_CAVE_WIDTH, CAVE_STANDARD_DEV).unwrap().sample(&mut rand);
+    let b = Normal::new(AVG_CAVE_WIDTH, CAVE_STANDARD_DEV / 2.).unwrap().sample(&mut rand);
+
+    return Cave {
+        block_type: BlockType::CaveVoid,
+        chunk_number,
+        cave_number,
+        start_x,
+        start_y,
+        a,
+        b,
+    };
+
+}
+
+
+//Defines oval boarder of Cave, adds noise to circumference of oval to make caves more random
+pub fn is_point_in_cave(cave: &Cave, x: usize, y: usize, seed: u64) -> bool {
+
+    let mut rand = StdRng::seed_from_u64(generate_seed(seed, vec![cave.chunk_number, cave.cave_number]));
+
+    let x0 = cave.start_x as f32;
+    let y0 = cave.start_y as f32;
+
+    let dist = ((x0 - x as f32).powf(2.) / cave.a.powf(2.) as f32) + ((y0 - y as f32).powf(2.) as f32 / cave.b.powf(2.) as f32);
+
+    let noise = Normal::new(1., CAVE_BOARDER_NOISE).unwrap().sample(&mut rand);
+
+    return dist <= noise;
+
 }

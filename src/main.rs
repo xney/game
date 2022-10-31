@@ -32,13 +32,6 @@ fn main() {
             c.spawn_bundle(Camera2dBundle::default())
                 .insert(CharacterCamera);
         })
-        .insert_resource(WindowDescriptor {
-            title: "Game".to_string(),
-            width: 1280.,
-            height: 720.,
-
-            ..default()
-        })
         .add_plugin(world::WorldPlugin)
         .add_plugin(player::PlayerPlugin)
         .add_plugin(network::client::ClientPlugin)
