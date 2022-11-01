@@ -154,7 +154,10 @@ pub mod server {
     }
 
     /// Bevy plugin that implements server logic
-    pub struct ServerPlugin;
+    pub struct ServerPlugin {
+        pub port: u16,
+        pub filename: String
+    }
 
     impl Plugin for ServerPlugin {
         fn build(&self, app: &mut App) {
@@ -231,7 +234,7 @@ pub mod client {
     use super::*;
     use crate::states;
     use bevy::prelude::*;
-    use std::net::{SocketAddr, UdpSocket};
+    use std::net::{SocketAddr, UdpSocket, IpAddr};
 
     /// Should be used as a global resource on the client
     struct Client {
@@ -289,7 +292,10 @@ pub mod client {
         }
     }
 
-    pub struct ClientPlugin;
+    pub struct ClientPlugin {
+        pub server_address: IpAddr,
+        pub server_port: u16
+    }
 
     impl Plugin for ClientPlugin {
         fn build(&self, app: &mut App) {
