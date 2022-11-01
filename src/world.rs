@@ -8,7 +8,7 @@ use crate::{
     network::BINCODE_CONFIG,
 };
 
-use bincode::{Decode, Encode};
+use bincode::{Decode, Encode, BorrowDecode};
 use rand::Rng;
 
 pub const CHUNK_HEIGHT: usize = 32;
@@ -639,7 +639,7 @@ fn f6_loads_terrain(
             let mut decoded: Terrain = bincode::decode_from_slice(&encoded_vec, BINCODE_CONFIG)
                 .unwrap()
                 .0;
-            load_from_vec(&mut commands, assets, &mut decoded);
+            spawn_sprites_from_terrain(&mut commands, assets, &mut decoded);
             commands.insert_resource(decoded);
         }
         Err(e) => {
@@ -649,7 +649,7 @@ fn f6_loads_terrain(
 }
 
 // Load world from vec (assumes terrain is cleared)
-pub fn load_from_vec(commands: &mut Commands, assets: Res<AssetServer>, terrain: &mut Terrain) {
+pub fn spawn_sprites_from_terrain(commands: &mut Commands, assets: Res<AssetServer>, terrain: &mut Terrain) {
     for chunk in &mut terrain.chunks {
         for x in 0..CHUNK_WIDTH {
             for y in 0..CHUNK_HEIGHT {

@@ -7,6 +7,7 @@ mod procedural_functions;
 mod states;
 mod world;
 mod network;
+mod save;
 
 const TITLE: &str = "The Krusty Krabs";
 const WIN_W: f32 = 1280.;

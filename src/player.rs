@@ -5,6 +5,11 @@ use bevy::{
 };
 use std::{cmp, time::Duration};
 
+use bincode::{Decode, Encode};
+use crate::network::BINCODE_CONFIG;
+use std::io::Write;
+use std::fs::*;
+
 use crate::{
     states::GameState,
     world::{
@@ -16,16 +21,37 @@ use crate::{
 
 const PLAYER_ASSET: &str = "Ferris.png";
 const PLAYER_SIZE: f32 = 32.;
-const PLAYER_START_COORDS: [f32; 3] = [0., 0., 2.];
+const PLAYER_START_COORDS: (u64, u64) = (0, 0);
 const PLAYER_SPEED: f32 = 500.;
 const PLAYER_JUMP_DURATION: f32 = 0.3; //seconds
 const PLAYER_MINE_DURATION: f32 = 2.; //seconds
 const PLAYER_MINE_RADIUS: f32 = 3.; //number of blocks
 const GRAVITY: f32 = -350.0;
 const CAMERA_BOUNDS_SIZE: [f32; 2] = [1000., 500.];
+const PLAYER_Z: f32 = 2.0;
 
 #[derive(Component)]
-struct Player;
+pub struct Player;
+
+impl Encode for Player {
+    fn encode<E: bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> Result<(), bincode::error::EncodeError> {
+        bincode::Encode::encode(&self, encoder);
+        Ok(())
+    }
+}
+
+impl Decode for Player {
+    fn decode<D: bincode::de::Decoder>(
+        decoder: &mut D,
+    ) -> Result<Self, bincode::error::DecodeError> {
+        Ok(Self {
+          
+        })
+    }
+}
 
 #[derive(Component)]
 struct JumpDuration {
@@ -84,7 +110,7 @@ impl Plugin for PlayerPlugin {
                 .with_system(handle_camera_movement)
                 .with_system(handle_movement)
                 .with_system(handle_mining)
-                .with_system(handle_terrain),
+                .with_system(handle_terrain)
         )
         .add_system_set(SystemSet::on_enter(GameState::InGame).with_system(setup));
     }
@@ -95,13 +121,13 @@ struct CameraBoundsBox {
     center_coord: Vec3,
 }
 
-fn setup(mut commands: Commands, assets: Res<AssetServer>) {
+fn spawn_player(mut commands: &mut Commands, assets: &AssetServer, position:(u64, u64)) {
     //Player Entity
     commands
         .spawn_bundle(SpriteBundle {
             transform: Transform {
                 // render in front of blocks
-                translation: Vec3::from_array(PLAYER_START_COORDS),
+                translation: Vec3::new(position.0 as f32, position.1 as f32, PLAYER_Z),
                 ..default()
             },
             texture: assets.load(PLAYER_ASSET),
@@ -122,7 +148,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
             state: PlayerJumpState::default(),
         })
         .insert(CameraBoundsBox {
-            center_coord: Vec3::from_array(PLAYER_START_COORDS),
+            center_coord: Vec3::new(position.0 as f32, position.1 as f32, PLAYER_Z),
         });
 }
 
@@ -225,7 +251,7 @@ fn get_collisions(
 ) -> PlayerCollision {
     // Get block indices we need to check
     // Assume player is 1x1 for now
-
+    
     let x_block_index = (player_transform.translation.x / 32.) as usize;
     let y_block_index = -(player_transform.translation.y / 32.) as usize;
 
@@ -449,3 +475,13 @@ fn handle_terrain(
         }
     }
 }
+
+// Load world from vec (assumes terrain is cleared)
+pub fn load_player_pos(position:(u64, u64), mut commands: &mut Commands, assets: &AssetServer) {
+    spawn_player(&mut commands, assets, position);
+}
+
+fn setup(mut commands: Commands, assets: Res<AssetServer>) {
+    spawn_player(&mut commands, assets.as_ref(), PLAYER_START_COORDS);
+}
+
