@@ -5,6 +5,11 @@ use bevy::{
 };
 use std::{cmp, time::Duration};
 
+use crate::network::BINCODE_CONFIG;
+use bincode::{Decode, Encode};
+use std::fs::*;
+use std::io::Write;
+
 use crate::{
     states::GameState,
     world::{
@@ -16,16 +21,35 @@ use crate::{
 
 const PLAYER_ASSET: &str = "Ferris.png";
 const PLAYER_SIZE: f32 = 32.;
-const PLAYER_START_COORDS: [f32; 3] = [0., 0., 2.];
+const PLAYER_START_COORDS: (u64, u64) = (0, 0);
 const PLAYER_SPEED: f32 = 500.;
 const PLAYER_JUMP_DURATION: f32 = 0.3; //seconds
 const PLAYER_MINE_DURATION: f32 = 2.; //seconds
 const PLAYER_MINE_RADIUS: f32 = 3.; //number of blocks
 const GRAVITY: f32 = -350.0;
 const CAMERA_BOUNDS_SIZE: [f32; 2] = [1000., 500.];
+const PLAYER_Z: f32 = 2.0;
 
 #[derive(Component)]
-struct Player;
+pub struct Player;
+
+impl Encode for Player {
+    fn encode<E: bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> Result<(), bincode::error::EncodeError> {
+        bincode::Encode::encode(&self, encoder);
+        Ok(())
+    }
+}
+
+impl Decode for Player {
+    fn decode<D: bincode::de::Decoder>(
+        decoder: &mut D,
+    ) -> Result<Self, bincode::error::DecodeError> {
+        Ok(Self {})
+    }
+}
 
 #[derive(Component)]
 struct JumpDuration {
@@ -74,11 +98,6 @@ impl Default for PlayerCollision {
     }
 }
 
-#[derive(Component)]
-struct CameraBoundsBox {
-    center_coord: Vec3,
-}
-
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
@@ -96,13 +115,39 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-fn setup(mut commands: Commands, assets: Res<AssetServer>) {
+#[derive(Component)]
+pub struct CameraBoundsBox {
+    pub center_coord: Vec3,
+}
+
+/// Helper method, used during loading file and during systemset enter
+fn spawn_player(
+    mut commands: &mut Commands,
+    assets: &AssetServer,
+    position: (u64, u64),
+    mut camera_transform: &mut Transform,
+) {
+    // convert from game coordinate to bevy coordinate
+    let real_x = position.0 as f32 * 32.;
+    let real_y = -(position.1 as f32 * 32.);
+
+    let camera_bounds = CameraBoundsBox {
+        center_coord: Vec3::new(real_x, real_y, PLAYER_Z),
+    };
+
+    // center the camera on the player (or where the player will be)
+    reset_camera(&camera_bounds, camera_transform);
+
+    info!(
+        "spawning player at position=({}, {}), real = ({}, {})",
+        position.0, position.1, real_x, real_y
+    );
     //Player Entity
     commands
         .spawn_bundle(SpriteBundle {
             transform: Transform {
                 // render in front of blocks
-                translation: Vec3::from_array(PLAYER_START_COORDS),
+                translation: Vec3::new(real_x, real_y, PLAYER_Z),
                 ..default()
             },
             texture: assets.load(PLAYER_ASSET),
@@ -122,9 +167,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
         .insert(JumpState {
             state: PlayerJumpState::default(),
         })
-        .insert(CameraBoundsBox {
-            center_coord: Vec3::from_array(PLAYER_START_COORDS),
-        });
+        .insert(camera_bounds);
 }
 
 fn destroy_player(
@@ -137,8 +180,8 @@ fn destroy_player(
     }
 
     for mut camera in camera_query.iter_mut() {
-        camera.0.translation.x = PLAYER_START_COORDS[0];
-        camera.0.translation.y = PLAYER_START_COORDS[1];
+        camera.0.translation.x = PLAYER_START_COORDS.0 as f32;
+        camera.0.translation.y = PLAYER_START_COORDS.1 as f32;
     }
 
     commands.remove_resource::<PlayerCollision>();
@@ -473,4 +516,24 @@ fn handle_terrain(
             };
         }
     }
+}
+
+// spawns the player at a specific position
+pub fn spawn_player_pos(position: (u64, u64), mut commands: &mut Commands, assets: &AssetServer, camera_transform: &mut Transform) {
+    spawn_player(&mut commands, assets, position, camera_transform);
+}
+
+// startup system, spawns the player at 0,0
+fn setup(mut commands: Commands, assets: Res<AssetServer>,
+    mut query: Query<(&mut Transform, With<CharacterCamera>, Without<Player>)>) {
+    spawn_player(&mut commands, assets.as_ref(), PLAYER_START_COORDS, &mut query.get_single_mut().unwrap().0);
+}
+
+/// Helper function, centers the camera in the camera bounds
+fn reset_camera(
+    mut camera_bounds: &CameraBoundsBox,
+    mut camera_transform: &mut Transform,
+){
+    camera_transform.translation.x = camera_bounds.center_coord[0];
+    camera_transform.translation.y = camera_bounds.center_coord[1];
 }

@@ -9,9 +9,10 @@ use crate::{
         generate_random_vein_count, is_point_in_cave,
     },
     states,
+    save,
 };
 
-use bincode::{Decode, Encode};
+use bincode::{Decode, Encode, BorrowDecode};
 use rand::Rng;
 
 pub const CHUNK_HEIGHT: usize = 32;
@@ -29,8 +30,6 @@ impl Plugin for WorldPlugin {
         .add_system_set(
             SystemSet::on_update(states::GameState::InGame)
                 .with_system(f2_prints_terrain)
-                .with_system(f5_writes_terrain)
-                .with_system(f6_loads_terrain)
                 .with_system(g_deletes_random_block),
         )
         .add_system_set(SystemSet::on_exit(states::GameState::InGame).with_system(destroy_world));
@@ -645,68 +644,8 @@ fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
     }
 }
 
-// Make f5 write encoded terrain to file "savedterrain"
-fn f5_writes_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
-    // return early if F5 was not just pressed
-    if !input.just_pressed(KeyCode::F5) {
-        return;
-    }
-    // try to encode, allocating a vec
-    // in a real packet, we should use a pre-allocated array and encode into its slice
-    match bincode::encode_to_vec(terrain.as_ref(), BINCODE_CONFIG) {
-        Ok(encoded_vec) => {
-            // write the bytes to file
-            create_dir_all("./savedata/"); //creates the savedata folder if it is missing
-
-            match File::create("./savedata/quicksave.sav") {
-                Ok(mut file) => {
-                    file.write_all(&encoded_vec)
-                        .expect("could not write to save file");
-                }
-                Err(e) => {
-                    error!("could not create save file, {}", e);
-                }
-            }
-        }
-        Err(e) => {
-            error!("unable to encode terrain, {}", e);
-        }
-    }
-}
-
-// Make f6 read encoded terrain from file "savedterrain", clear current block entities, and link new entities
-fn f6_loads_terrain(
-    input: Res<Input<KeyCode>>,
-    mut commands: Commands,
-    assets: Res<AssetServer>,
-    query: Query<Entity, With<RenderedBlock>>,
-) {
-    // return early if F6 was not just pressed
-    if !input.just_pressed(KeyCode::F6) {
-        return;
-    }
-    match read("./savedata/quicksave.sav") {
-        Ok(encoded_vec) => {
-            // clear the world
-            for entity in query.iter() {
-                commands.entity(entity).despawn();
-            }
-            commands.remove_resource::<Terrain>();
-            // load the world
-            let mut decoded: Terrain = bincode::decode_from_slice(&encoded_vec, BINCODE_CONFIG)
-                .unwrap()
-                .0;
-            load_from_vec(&mut commands, assets, &mut decoded);
-            commands.insert_resource(decoded);
-        }
-        Err(e) => {
-            error!("could not read save file, {}", e);
-        }
-    }
-}
-
 // Load world from vec (assumes terrain is cleared)
-pub fn load_from_vec(commands: &mut Commands, assets: Res<AssetServer>, terrain: &mut Terrain) {
+pub fn spawn_sprites_from_terrain(commands: &mut Commands, assets: &AssetServer, terrain: &mut Terrain) {
     for chunk in &mut terrain.chunks {
         for x in 0..CHUNK_WIDTH {
             for y in 0..CHUNK_HEIGHT {
