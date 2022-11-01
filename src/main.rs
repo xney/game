@@ -1,13 +1,14 @@
 use bevy::prelude::*;
 
+mod args;
 mod credit_image;
 mod menu;
 mod network;
 mod player;
 mod procedural_functions;
+mod save;
 mod states;
 mod world;
-mod save;
 
 const TITLE: &str = "The Krusty Krabs";
 const WIN_W: f32 = 1280.;
@@ -17,7 +18,10 @@ const WIN_H: f32 = 720.;
 pub struct CharacterCamera;
 
 fn main() {
-    App::new()
+    let args = args::get_args();
+    let mut app = App::new();
+
+    app
         .add_plugins(DefaultPlugins)
         .add_plugin(states::StatePlugin)
         .add_plugin(credit_image::CreditImagePlugin)
@@ -35,8 +39,28 @@ fn main() {
         })
         .add_plugin(world::WorldPlugin)
         .add_plugin(player::PlayerPlugin)
-        .add_plugin(network::client::ClientPlugin)
-        .add_plugin(network::server::ServerPlugin)
-        .add_plugin(save::SaveLoadPlugin)
-        .run();
+        .add_plugin(save::SaveLoadPlugin);
+
+    match args {
+        args::GameArgs::Server(s) => {
+            app.add_plugin(network::server::ServerPlugin {
+                port: s.port,
+                filename: s.filename,
+            });
+            ()
+        }
+        args::GameArgs::Client(c) => {
+            app.add_plugin(network::client::ClientPlugin {
+                server_address: c.server_ip,
+                server_port: c.port,
+            });
+            ()
+        }
+        args::GameArgs::None => {
+            warn!("No command line arguments provided, not adding any network plugin!");
+            ()
+        }
+    }
+
+    app.run();
 }
