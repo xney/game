@@ -5,10 +5,10 @@ use bevy::{
 };
 use std::{cmp, time::Duration};
 
-use bincode::{Decode, Encode};
 use crate::network::BINCODE_CONFIG;
-use std::io::Write;
+use bincode::{Decode, Encode};
 use std::fs::*;
+use std::io::Write;
 
 use crate::{
     states::GameState,
@@ -47,9 +47,7 @@ impl Decode for Player {
     fn decode<D: bincode::de::Decoder>(
         decoder: &mut D,
     ) -> Result<Self, bincode::error::DecodeError> {
-        Ok(Self {
-          
-        })
+        Ok(Self {})
     }
 }
 
@@ -110,24 +108,45 @@ impl Plugin for PlayerPlugin {
                 .with_system(handle_camera_movement)
                 .with_system(handle_movement)
                 .with_system(handle_mining)
-                .with_system(handle_terrain)
+                .with_system(handle_terrain),
         )
         .add_system_set(SystemSet::on_enter(GameState::InGame).with_system(setup));
     }
 }
 
 #[derive(Component)]
-struct CameraBoundsBox {
-    center_coord: Vec3,
+pub struct CameraBoundsBox {
+    pub center_coord: Vec3,
 }
 
-fn spawn_player(mut commands: &mut Commands, assets: &AssetServer, position:(u64, u64)) {
+/// Helper method, used during loading file and during systemset enter
+fn spawn_player(
+    mut commands: &mut Commands,
+    assets: &AssetServer,
+    position: (u64, u64),
+    mut camera_transform: &mut Transform,
+) {
+    // convert from game coordinate to bevy coordinate
+    let real_x = position.0 as f32 * 32.;
+    let real_y = -(position.1 as f32 * 32.);
+
+    let camera_bounds = CameraBoundsBox {
+        center_coord: Vec3::new(real_x, real_y, PLAYER_Z),
+    };
+
+    // center the camera on the player (or where the player will be)
+    reset_camera(&camera_bounds, camera_transform);
+
+    info!(
+        "spawning player at position=({}, {}), real = ({}, {})",
+        position.0, position.1, real_x, real_y
+    );
     //Player Entity
     commands
         .spawn_bundle(SpriteBundle {
             transform: Transform {
                 // render in front of blocks
-                translation: Vec3::new(position.0 as f32, position.1 as f32, PLAYER_Z),
+                translation: Vec3::new(real_x, real_y, PLAYER_Z),
                 ..default()
             },
             texture: assets.load(PLAYER_ASSET),
@@ -147,9 +166,7 @@ fn spawn_player(mut commands: &mut Commands, assets: &AssetServer, position:(u64
         .insert(JumpState {
             state: PlayerJumpState::default(),
         })
-        .insert(CameraBoundsBox {
-            center_coord: Vec3::new(position.0 as f32, position.1 as f32, PLAYER_Z),
-        });
+        .insert(camera_bounds);
 }
 
 //Handles player movement, gravity, jumpstate
@@ -251,7 +268,7 @@ fn get_collisions(
 ) -> PlayerCollision {
     // Get block indices we need to check
     // Assume player is 1x1 for now
-    
+
     let x_block_index = (player_transform.translation.x / 32.) as usize;
     let y_block_index = -(player_transform.translation.y / 32.) as usize;
 
@@ -476,12 +493,22 @@ fn handle_terrain(
     }
 }
 
-// Load world from vec (assumes terrain is cleared)
-pub fn load_player_pos(position:(u64, u64), mut commands: &mut Commands, assets: &AssetServer) {
-    spawn_player(&mut commands, assets, position);
+// spawns the player at a specific position
+pub fn spawn_player_pos(position: (u64, u64), mut commands: &mut Commands, assets: &AssetServer, camera_transform: &mut Transform) {
+    spawn_player(&mut commands, assets, position, camera_transform);
 }
 
-fn setup(mut commands: Commands, assets: Res<AssetServer>) {
-    spawn_player(&mut commands, assets.as_ref(), PLAYER_START_COORDS);
+// startup system, spawns the player at 0,0
+fn setup(mut commands: Commands, assets: Res<AssetServer>,
+    mut query: Query<(&mut Transform, With<CharacterCamera>, Without<Player>)>) {
+    spawn_player(&mut commands, assets.as_ref(), PLAYER_START_COORDS, &mut query.get_single_mut().unwrap().0);
 }
 
+/// Helper function, centers the camera in the camera bounds
+fn reset_camera(
+    mut camera_bounds: &CameraBoundsBox,
+    mut camera_transform: &mut Transform,
+){
+    camera_transform.translation.x = camera_bounds.center_coord[0];
+    camera_transform.translation.y = camera_bounds.center_coord[1];
+}
