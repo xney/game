@@ -110,7 +110,8 @@ impl Plugin for PlayerPlugin {
                 .with_system(handle_mining)
                 .with_system(handle_terrain),
         )
-        .add_system_set(SystemSet::on_enter(GameState::InGame).with_system(setup));
+        .add_system_set(SystemSet::on_enter(GameState::InGame).with_system(setup))
+        .add_system_set(SystemSet::on_enter(GameState::Credits).with_system(destroy_player));
     }
 }
 
@@ -167,6 +168,30 @@ fn spawn_player(
             state: PlayerJumpState::default(),
         })
         .insert(camera_bounds);
+}
+
+fn destroy_player(
+    query: Query<Entity, With<Player>>,
+    mut camera_query: Query<(&mut Transform, With<CharacterCamera>, Without<Player>)>,
+    mut commands: Commands,
+) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    for mut camera in camera_query.iter_mut() {
+        camera.0.translation.x = PLAYER_START_COORDS.0 as f32;
+        camera.0.translation.y = PLAYER_START_COORDS.1 as f32;
+    }
+
+    commands.remove_resource::<PlayerCollision>();
+    commands.remove_resource::<CharacterCamera>();
+    commands.remove_resource::<CameraBoundsBox>();
+    commands.remove_resource::<JumpState>();
+    commands.remove_resource::<MineDuration>();
+    commands.remove_resource::<JumpDuration>();
+    commands.remove_resource::<Camera2dBundle>();
+    commands.remove_resource::<Transform>();
 }
 
 //Handles player movement, gravity, jumpstate

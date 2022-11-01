@@ -2,11 +2,11 @@ use bevy::prelude::*;
 
 mod credit_image;
 mod menu;
+mod network;
 mod player;
 mod procedural_functions;
 mod states;
 mod world;
-mod network;
 mod save;
 
 const TITLE: &str = "The Krusty Krabs";
@@ -32,13 +32,6 @@ fn main() {
         .add_startup_system(|mut c: Commands| {
             c.spawn_bundle(Camera2dBundle::default())
                 .insert(CharacterCamera);
-        })
-        .insert_resource(WindowDescriptor {
-            title: "Game".to_string(),
-            width: 1280.,
-            height: 720.,
-
-            ..default()
         })
         .add_plugin(world::WorldPlugin)
         .add_plugin(player::PlayerPlugin)
