@@ -15,7 +15,7 @@ use crate::{
 use bincode::{Decode, Encode, BorrowDecode};
 use rand::Rng;
 
-pub const CHUNK_HEIGHT: usize = 32;
+pub const CHUNK_HEIGHT: usize = 64;
 pub const CHUNK_WIDTH: usize = 128;
 
 const BASE_SEED: u64 = 82981925813;
@@ -223,12 +223,44 @@ impl Chunk {
         let random_vals = procedural_functions::generate_random_values(
             BASE_SEED, //Use hard-coded seed for now
             16,        //16 random values, so 16 points to interpolate between
-            1, 16, //Peaks as high as 16 blocks
+            3, 16, //Peaks as high as 16 blocks
         );
+        let random_sand_depths = procedural_functions::generate_random_values(
+            BASE_SEED, //Use hard-coded seed for now
+            32,        //16 random values, so 16 points to interpolate between
+            16, 31, //Peaks as high as 16 blocks
+        );
+        let random_trees = procedural_functions::generate_random_values(
+            BASE_SEED, //Use hard-coded seed for now
+            CHUNK_WIDTH,
+            0,CHUNK_WIDTH/8
+        );
+
         // Loop through chunk, filling in where blocks should be
         for x in 0..CHUNK_WIDTH {
-            for y in procedural_functions::slice_pos_x(x, &random_vals).round() as usize - 1
-                ..CHUNK_HEIGHT
+            let hill_top = procedural_functions::slice_pos_x(x, &random_vals).round() as usize - 1;
+            let sand_depth = procedural_functions::slice_pos_x(x, &random_sand_depths).round() as usize - 1;
+            
+            if(random_trees[x] == 1){
+                let block_type = BlockType::PalmTreeBlock;
+
+                c.blocks[hill_top-1][x] = Some(Block {
+                    block_type,
+                    entity: None,
+                });
+            }
+            for y in 
+              hill_top..sand_depth
+            {
+                let block_type = BlockType::Sand;
+
+                c.blocks[y][x] = Some(Block {
+                    block_type,
+                    entity: None,
+                });
+            }
+
+            for y in sand_depth..CHUNK_HEIGHT
             {
                 let mut block_type = BlockType::Sandstone;
 
@@ -365,6 +397,8 @@ pub enum BlockType {
     Sandstone,
     Coal,
     CaveVoid,
+    Sand,
+    PalmTreeBlock
 }
 
 impl BlockType {
@@ -374,6 +408,9 @@ impl BlockType {
             BlockType::Sandstone => "Sandstone.png",
             BlockType::Coal => "Coal.png",
             BlockType::CaveVoid => "",
+            BlockType::Sand => "Sand.png",
+            BlockType::PalmTreeBlock => "PalmTreeBlock.png",
+
         }
     }
 }

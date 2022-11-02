@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, render::render_resource::Texture};
 
 mod args;
 mod credit_image;
@@ -18,6 +18,7 @@ const WIN_H: f32 = 720.;
 pub struct CharacterCamera;
 
 fn main() {
+   
     let args = args::get_args();
     let mut app = App::new();
 
@@ -32,11 +33,12 @@ fn main() {
             height: WIN_H,
             ..default()
         })
-        .insert_resource(ClearColor(Color::rgb(0.0, 0.6, 0.8)))
+        .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .add_startup_system(|mut c: Commands| {
             c.spawn_bundle(Camera2dBundle::default())
                 .insert(CharacterCamera);
         })
+        .add_startup_system(setup_background)
         .add_plugin(world::WorldPlugin)
         .add_plugin(player::PlayerPlugin)
         .add_plugin(save::SaveLoadPlugin);
@@ -63,4 +65,20 @@ fn main() {
     }
 
     app.run();
+}
+
+fn setup_background(
+    mut c: Commands,
+    asset_server: Res<AssetServer>
+) {
+
+    
+    c.spawn_bundle(SpriteBundle {
+        texture: asset_server.load("Background1.png"),
+        transform: Transform{
+            scale: Vec3::from_array([8.,8.,0.]),
+            ..default()
+        },
+        ..default()
+    });
 }
