@@ -21,8 +21,7 @@ fn main() {
     let args = args::get_args();
     let mut app = App::new();
 
-    app
-        .add_plugins(DefaultPlugins)
+    app.add_plugins(DefaultPlugins)
         .add_plugin(states::StatePlugin)
         .add_plugin(credit_image::CreditImagePlugin)
         .add_plugin(menu::MenuPlugin)
@@ -41,23 +40,20 @@ fn main() {
         .add_plugin(player::PlayerPlugin)
         .add_plugin(save::SaveLoadPlugin);
 
+    warn!("game arguments: {:?}", args);
     match args {
         args::GameArgs::Server(s) => {
             app.add_plugin(network::server::ServerPlugin {
                 port: s.port,
-                filename: s.filename,
+                save_file: s.save_file,
             });
             ()
         }
         args::GameArgs::Client(c) => {
             app.add_plugin(network::client::ClientPlugin {
-                server_address: c.server_ip,
-                server_port: c.port,
+                server_address: c.server_ip.into(),
+                server_port: c.server_port,
             });
-            ()
-        }
-        args::GameArgs::None => {
-            warn!("No command line arguments provided, not adding any network plugin!");
             ()
         }
     }
