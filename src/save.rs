@@ -18,18 +18,24 @@ pub const DEFAULT_SAVE_DIR: &'static str = "savedata";
 pub const DEFAULT_SAVE_FILE: &'static str = "savegame.sav";
 
 pub fn default_save_path() -> PathBuf {
-    Path::new(".").join(DEFAULT_SAVE_DIR).join(DEFAULT_SAVE_FILE)
+    Path::new(".")
+        .join(DEFAULT_SAVE_DIR)
+        .join(DEFAULT_SAVE_FILE)
 }
 
-pub struct SaveLoadPlugin;
+pub mod client {
 
-impl Plugin for SaveLoadPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_system_set(
-            SystemSet::on_update(states::GameState::InGame)
-                .with_system(f5_save_to_file)
-                .with_system(f6_load_from_file),
-        );
+    use super::*;
+    pub struct SaveLoadPlugin;
+
+    impl Plugin for SaveLoadPlugin {
+        fn build(&self, app: &mut App) {
+            app.add_system_set(
+                SystemSet::on_update(states::client::GameState::InGame)
+                    .with_system(f5_save_to_file)
+                    .with_system(f6_load_from_file),
+            );
+        }
     }
 }
 

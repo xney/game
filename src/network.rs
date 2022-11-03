@@ -106,7 +106,10 @@ pub mod server {
     use super::*;
     use crate::states;
     use bevy::prelude::*;
-    use std::{net::{SocketAddr, UdpSocket}, path::PathBuf};
+    use std::{
+        net::{SocketAddr, UdpSocket},
+        path::PathBuf,
+    };
 
     const NETWORK_TICK_DELAY: u64 = 60;
 
@@ -180,13 +183,13 @@ pub mod server {
             let mut buffer = [0u8; 2048];
 
             // read from socket
-            let (_size, sender_addr) = self
-                .socket
-                .recv_from(&mut buffer)
-                .map_err(|e| match e.kind() {
-                    std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
-                    _ => ReceiveError::IoError(e),
-                })?;
+            let (_size, sender_addr) =
+                self.socket
+                    .recv_from(&mut buffer)
+                    .map_err(|e| match e.kind() {
+                        std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
+                        _ => ReceiveError::IoError(e),
+                    })?;
 
             // decode
             let (message, _size) = bincode::decode_from_slice(&buffer, BINCODE_CONFIG)
@@ -210,23 +213,23 @@ pub mod server {
     /// Bevy plugin that implements server logic
     pub struct ServerPlugin {
         pub port: u16,
-        pub save_file: PathBuf
+        pub save_file: PathBuf,
     }
 
     impl Plugin for ServerPlugin {
         fn build(&self, app: &mut App) {
             app.add_system_set(
-                SystemSet::on_enter(states::GameState::InGame).with_system(create_server),
+                SystemSet::on_enter(states::server::GameState::Running).with_system(create_server),
             )
             .add_system_set(
-                SystemSet::on_update(states::GameState::InGame)
+                SystemSet::on_update(states::server::GameState::Running)
                     .with_system(increase_tick)
                     .with_system(server_handle_messages.after(increase_tick))
                     .with_system(send_all_messages.after(server_handle_messages))
                     .with_system(drop_disconnected_clients.after(send_all_messages)),
             )
             .add_system_set(
-                SystemSet::on_exit(states::GameState::InGame).with_system(destroy_server),
+                SystemSet::on_exit(states::server::GameState::Running).with_system(destroy_server),
             );
         }
     }
@@ -239,6 +242,8 @@ pub mod server {
         };
 
         commands.insert_resource(server);
+
+        info!("server created");
     }
 
     fn destroy_server(mut commands: Commands) {
@@ -369,7 +374,7 @@ pub mod client {
     use super::*;
     use crate::states;
     use bevy::prelude::*;
-    use std::net::{SocketAddr, UdpSocket, IpAddr};
+    use std::net::{IpAddr, SocketAddr, UdpSocket};
 
     const NETWORK_TICK_DELAY: u64 = 60;
 
@@ -421,13 +426,13 @@ pub mod client {
             let mut buffer = [0u8; 2048];
 
             // read from socket
-            let (_size, sender_addr) = self
-                .socket
-                .recv_from(&mut buffer)
-                .map_err(|e| match e.kind() {
-                    std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
-                    _ => ReceiveError::IoError(e),
-                })?;
+            let (_size, sender_addr) =
+                self.socket
+                    .recv_from(&mut buffer)
+                    .map_err(|e| match e.kind() {
+                        std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
+                        _ => ReceiveError::IoError(e),
+                    })?;
 
             // check if it's actually from the server
             if sender_addr != self.server {
@@ -444,16 +449,16 @@ pub mod client {
 
     pub struct ClientPlugin {
         pub server_address: IpAddr,
-        pub server_port: u16
+        pub server_port: u16,
     }
 
     impl Plugin for ClientPlugin {
         fn build(&self, app: &mut App) {
             app.add_system_set(
-                SystemSet::on_enter(states::GameState::InGame).with_system(create_client),
+                SystemSet::on_enter(states::client::GameState::InGame).with_system(create_client),
             )
             .add_system_set(
-                SystemSet::on_update(states::GameState::InGame)
+                SystemSet::on_update(states::client::GameState::InGame)
                     .with_system(o_pause_client)
                     .with_system(increase_tick.after(o_pause_client))
                     .with_system(p_queues_ping.after(increase_tick))
@@ -461,7 +466,7 @@ pub mod client {
                     .with_system(send_bodies.after(client_handle_messages)),
             )
             .add_system_set(
-                SystemSet::on_exit(states::GameState::InGame).with_system(destroy_client),
+                SystemSet::on_exit(states::client::GameState::InGame).with_system(destroy_client),
             );
         }
     }
@@ -596,4 +601,6 @@ pub mod client {
         // client doesn't care if message arrives -- it never retransmits bodies
         client.bodies.clear();
     }
+
+    // TODO: client-side timeout!
 }

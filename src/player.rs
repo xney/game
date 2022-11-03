@@ -11,7 +11,7 @@ use std::fs::*;
 use std::io::Write;
 
 use crate::{
-    states::GameState,
+    states::client::GameState,
     world::{
         block_exists, derender_chunk, destroy_block, render_chunk, spawn_chunk, to_world_point_x,
         to_world_point_y, Terrain, CHUNK_HEIGHT, CHUNK_WIDTH,

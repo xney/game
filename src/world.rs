@@ -8,11 +8,10 @@ use crate::{
         self, dist_to_vein, generate_random_cave, generate_random_cave_count, generate_random_vein,
         generate_random_vein_count, is_point_in_cave,
     },
-    states,
-    save,
+    save, states,
 };
 
-use bincode::{Decode, Encode, BorrowDecode};
+use bincode::{BorrowDecode, Decode, Encode};
 use rand::Rng;
 
 pub const CHUNK_HEIGHT: usize = 32;
@@ -20,19 +19,27 @@ pub const CHUNK_WIDTH: usize = 128;
 
 const BASE_SEED: u64 = 82981925813;
 
-pub struct WorldPlugin;
+pub mod client {
+    use super::*;
+    pub struct WorldPlugin;
 
-impl Plugin for WorldPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_system_set(
-            SystemSet::on_enter(states::GameState::InGame).with_system(create_world),
-        )
-        .add_system_set(
-            SystemSet::on_update(states::GameState::InGame)
-                .with_system(f2_prints_terrain)
-                .with_system(g_deletes_random_block),
-        )
-        .add_system_set(SystemSet::on_exit(states::GameState::InGame).with_system(destroy_world));
+    impl Plugin for WorldPlugin {
+        fn build(&self, app: &mut App) {
+            // TODO: get baseline terrain from server, then insert it as a resource
+            // then make a system that spawns in the entities from the resource
+            app
+                .add_system_set(
+                SystemSet::on_enter(states::client::GameState::InGame).with_system(create_world),
+                )
+                .add_system_set(
+                    SystemSet::on_update(states::client::GameState::InGame)
+                        .with_system(f2_prints_terrain)
+                        .with_system(g_deletes_random_block),
+                )
+                .add_system_set(
+                    SystemSet::on_exit(states::client::GameState::InGame).with_system(destroy_world),
+                );
+        }
     }
 }
 
@@ -407,6 +414,7 @@ pub fn spawn_chunk(
     // add the chunk to our terrain resource
     terrain.chunks.push(chunk);
 }
+
 pub fn render_chunk(
     chunk_number: u64,
     commands: &mut Commands,
@@ -645,7 +653,11 @@ fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
 }
 
 // Load world from vec (assumes terrain is cleared)
-pub fn spawn_sprites_from_terrain(commands: &mut Commands, assets: &AssetServer, terrain: &mut Terrain) {
+pub fn spawn_sprites_from_terrain(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    terrain: &mut Terrain,
+) {
     for chunk in &mut terrain.chunks {
         for x in 0..CHUNK_WIDTH {
             for y in 0..CHUNK_HEIGHT {
