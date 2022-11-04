@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 
 pub mod server {
+    use iyes_loopless::prelude::*;
+
     use super::*;
     // TODO: figure out if this is necessary
     #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -20,7 +22,7 @@ pub mod server {
 
     impl Plugin for StatePlugin {
         fn build(&self, app: &mut App) {
-            app.add_state(GameState::default());
+            app.add_loopless_state(GameState::default());
         }
     }
 }

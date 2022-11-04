@@ -1,12 +1,14 @@
 use super::*;
 use crate::states;
 use bevy::prelude::*;
+use iyes_loopless::prelude::*;
 use std::{
     net::{SocketAddr, UdpSocket},
     path::PathBuf,
 };
 
 const NETWORK_TICK_DELAY: u64 = 60;
+const SERVER_TIMESTEP_LABEL: &'static str = "SERVER_TICK";
 
 /// Should be used as a global resource on the server
 struct Server {
@@ -113,19 +115,43 @@ pub struct ServerPlugin {
 
 impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system_set(
-            SystemSet::on_enter(states::server::GameState::Running).with_system(create_server),
+        app.add_fixed_timestep(
+            std::time::Duration::from_secs_f64(1. / 60.),
+            SERVER_TIMESTEP_LABEL,
         )
-        .add_system_set(
-            SystemSet::on_update(states::server::GameState::Running)
-                .with_system(increase_tick)
-                .with_system(server_handle_messages.after(increase_tick))
-                .with_system(send_all_messages.after(server_handle_messages))
-                .with_system(drop_disconnected_clients.after(send_all_messages)),
+        .add_enter_system(states::server::GameState::Running, create_server)
+        .add_fixed_timestep_system(
+            SERVER_TIMESTEP_LABEL,
+            0,
+            increase_tick
+                .run_in_state(states::server::GameState::Running)
+                .label("increase_tick"),
         )
-        .add_system_set(
-            SystemSet::on_exit(states::server::GameState::Running).with_system(destroy_server),
-        );
+        .add_fixed_timestep_system(
+            SERVER_TIMESTEP_LABEL,
+            0,
+            server_handle_messages
+                .run_in_state(states::server::GameState::Running)
+                .after("increase_tick")
+                .label("handle_messages"),
+        )
+        .add_fixed_timestep_system(
+            SERVER_TIMESTEP_LABEL,
+            0,
+            send_all_messages
+                .run_in_state(states::server::GameState::Running)
+                .after("handle_messages")
+                .label("send_messages"),
+        )
+        .add_fixed_timestep_system(
+            SERVER_TIMESTEP_LABEL,
+            0,
+            drop_disconnected_clients
+                .run_in_state(states::server::GameState::Running)
+                .after("send_messages")
+                .label("drop_disconnected"),
+        )
+        .add_exit_system(states::server::GameState::Running, destroy_server);
     }
 }
 

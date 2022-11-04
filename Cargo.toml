@@ -16,6 +16,7 @@ opt-level = 3
 bevy = { version = "0.8.1", features = ["dynamic"] }
 bincode = { version = "2.0.0-rc.2" }
 clap = { version = "4.0.18", features = ["derive"] }
+iyes_loopless = "0.8.0"
 rand = { version = "0.8" }
 rand_distr = "0.4.3"
 strum = "0.24"
