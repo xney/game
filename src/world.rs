@@ -8,11 +8,10 @@ use crate::{
         self, dist_to_vein, generate_random_cave, generate_random_cave_count, generate_random_vein,
         generate_random_vein_count, is_point_in_cave,
     },
-    states,
-    save,
+    save, states,
 };
 
-use bincode::{Decode, Encode, BorrowDecode};
+use bincode::{BorrowDecode, Decode, Encode};
 use rand::Rng;
 
 pub const CHUNK_HEIGHT: usize = 32;
@@ -645,7 +644,11 @@ fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
 }
 
 // Load world from vec (assumes terrain is cleared)
-pub fn spawn_sprites_from_terrain(commands: &mut Commands, assets: &AssetServer, terrain: &mut Terrain) {
+pub fn spawn_sprites_from_terrain(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    terrain: &mut Terrain,
+) {
     for chunk in &mut terrain.chunks {
         for x in 0..CHUNK_WIDTH {
             for y in 0..CHUNK_HEIGHT {

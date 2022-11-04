@@ -180,13 +180,13 @@ pub mod server {
             let mut buffer = [0u8; 2048];
 
             // read from socket
-            let (_size, sender_addr) = self
-                .socket
-                .recv_from(&mut buffer)
-                .map_err(|e| match e.kind() {
-                    std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
-                    _ => ReceiveError::IoError(e),
-                })?;
+            let (_size, sender_addr) =
+                self.socket
+                    .recv_from(&mut buffer)
+                    .map_err(|e| match e.kind() {
+                        std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
+                        _ => ReceiveError::IoError(e),
+                    })?;
 
             // decode
             let (message, _size) = bincode::decode_from_slice(&buffer, BINCODE_CONFIG)
@@ -210,7 +210,7 @@ pub mod server {
     /// Bevy plugin that implements server logic
     pub struct ServerPlugin {
         pub port: u16,
-        pub filename: String
+        pub filename: String,
     }
 
     impl Plugin for ServerPlugin {
@@ -369,7 +369,7 @@ pub mod client {
     use super::*;
     use crate::states;
     use bevy::prelude::*;
-    use std::net::{SocketAddr, UdpSocket, IpAddr};
+    use std::net::{IpAddr, SocketAddr, UdpSocket};
 
     const NETWORK_TICK_DELAY: u64 = 60;
 
@@ -421,13 +421,13 @@ pub mod client {
             let mut buffer = [0u8; 2048];
 
             // read from socket
-            let (_size, sender_addr) = self
-                .socket
-                .recv_from(&mut buffer)
-                .map_err(|e| match e.kind() {
-                    std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
-                    _ => ReceiveError::IoError(e),
-                })?;
+            let (_size, sender_addr) =
+                self.socket
+                    .recv_from(&mut buffer)
+                    .map_err(|e| match e.kind() {
+                        std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
+                        _ => ReceiveError::IoError(e),
+                    })?;
 
             // check if it's actually from the server
             if sender_addr != self.server {
@@ -444,7 +444,7 @@ pub mod client {
 
     pub struct ClientPlugin {
         pub server_address: IpAddr,
-        pub server_port: u16
+        pub server_port: u16,
     }
 
     impl Plugin for ClientPlugin {
