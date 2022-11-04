@@ -1,4 +1,4 @@
-use std::net::{UdpSocket, SocketAddr, IpAddr};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 
 use super::*;
 use crate::states;

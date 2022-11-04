@@ -11,7 +11,8 @@ impl Plugin for CreditImagePlugin {
             SystemSet::on_enter(states::client::GameState::Credits).with_system(init_credits),
         )
         .add_system_set(
-            SystemSet::on_update(states::client::GameState::Credits).with_system(timer_change_credit_image),
+            SystemSet::on_update(states::client::GameState::Credits)
+                .with_system(timer_change_credit_image),
         )
         .add_system_set(
             SystemSet::on_exit(states::client::GameState::Credits).with_system(destroy_credits),

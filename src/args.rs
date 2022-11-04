@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 use std::path::PathBuf;
 
-use clap::{Parser, Args};
+use clap::{Args, Parser};
 
 use crate::{network, save};
 

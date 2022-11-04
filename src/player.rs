@@ -519,21 +519,31 @@ fn handle_terrain(
 }
 
 // spawns the player at a specific position
-pub fn spawn_player_pos(position: (u64, u64), mut commands: &mut Commands, assets: &AssetServer, camera_transform: &mut Transform) {
+pub fn spawn_player_pos(
+    position: (u64, u64),
+    mut commands: &mut Commands,
+    assets: &AssetServer,
+    camera_transform: &mut Transform,
+) {
     spawn_player(&mut commands, assets, position, camera_transform);
 }
 
 // startup system, spawns the player at 0,0
-fn setup(mut commands: Commands, assets: Res<AssetServer>,
-    mut query: Query<(&mut Transform, With<CharacterCamera>, Without<Player>)>) {
-    spawn_player(&mut commands, assets.as_ref(), PLAYER_START_COORDS, &mut query.get_single_mut().unwrap().0);
+fn setup(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    mut query: Query<(&mut Transform, With<CharacterCamera>, Without<Player>)>,
+) {
+    spawn_player(
+        &mut commands,
+        assets.as_ref(),
+        PLAYER_START_COORDS,
+        &mut query.get_single_mut().unwrap().0,
+    );
 }
 
 /// Helper function, centers the camera in the camera bounds
-fn reset_camera(
-    mut camera_bounds: &CameraBoundsBox,
-    mut camera_transform: &mut Transform,
-){
+fn reset_camera(mut camera_bounds: &CameraBoundsBox, mut camera_transform: &mut Transform) {
     camera_transform.translation.x = camera_bounds.center_coord[0];
     camera_transform.translation.y = camera_bounds.center_coord[1];
 }

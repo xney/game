@@ -27,18 +27,17 @@ pub mod client {
         fn build(&self, app: &mut App) {
             // TODO: get baseline terrain from server, then insert it as a resource
             // then make a system that spawns in the entities from the resource
-            app
-                .add_system_set(
+            app.add_system_set(
                 SystemSet::on_enter(states::client::GameState::InGame).with_system(create_world),
-                )
-                .add_system_set(
-                    SystemSet::on_update(states::client::GameState::InGame)
-                        .with_system(f2_prints_terrain)
-                        .with_system(g_deletes_random_block),
-                )
-                .add_system_set(
-                    SystemSet::on_exit(states::client::GameState::InGame).with_system(destroy_world),
-                );
+            )
+            .add_system_set(
+                SystemSet::on_update(states::client::GameState::InGame)
+                    .with_system(f2_prints_terrain)
+                    .with_system(g_deletes_random_block),
+            )
+            .add_system_set(
+                SystemSet::on_exit(states::client::GameState::InGame).with_system(destroy_world),
+            );
         }
     }
 }
