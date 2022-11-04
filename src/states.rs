@@ -77,3 +77,11 @@ pub mod client {
         }
     }
 }
+
+/// Immediately end the process
+fn ctrl_q_quit(input: Res<Input<KeyCode>>) {
+    if input.pressed(KeyCode::Q) && input.pressed(KeyCode::LControl) {
+        warn!("ctrl-Q detected -- exiting!");
+        std::process::exit(0);
+    }
+}

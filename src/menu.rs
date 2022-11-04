@@ -53,6 +53,9 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.add_state(MenuState::Main)
             .add_system_set(SystemSet::on_enter(GameState::Menu).with_system(menu_setup))
+            .add_system_set(
+                SystemSet::on_exit(GameState::Menu).with_system(despawn_screen::<OnMainMenuScreen>),
+            )
             .add_system_set(SystemSet::on_enter(MenuState::Main).with_system(main_menu_setup))
             .add_system_set(
                 SystemSet::on_exit(MenuState::Main).with_system(despawn_screen::<OnMainMenuScreen>),

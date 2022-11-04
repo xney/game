@@ -144,7 +144,7 @@ pub struct Chunk {
 
 impl Chunk {
     pub fn new(depth: u64, veins: &Vec<Vein>, caves: &Vec<Cave>) -> Self {
-        // For now: populate entire Chunk with Sandstone
+        // start with empty chunk
         let mut c = Chunk {
             blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
             chunk_number: depth,
@@ -159,7 +159,9 @@ impl Chunk {
                 // Check if this is within the bounds of an ore vein
                 for vein in veins {
                     // Only look at veins originating in previous or current chunk
-                    if (vein.chunk_number == depth - 1) || (vein.chunk_number == depth) {
+                    if depth > 0
+                        && ((vein.chunk_number == depth - 1) || (vein.chunk_number == depth))
+                    {
                         let y_offset = if depth > vein.chunk_number {
                             CHUNK_HEIGHT
                         } else {
@@ -186,7 +188,9 @@ impl Chunk {
                 }
 
                 for cave in caves {
-                    if (cave.chunk_number == depth - 1) || (cave.chunk_number == depth) {
+                    if depth > 0
+                        && ((cave.chunk_number == depth - 1) || (cave.chunk_number == depth))
+                    {
                         let mut y_offset = if depth > cave.chunk_number {
                             CHUNK_HEIGHT
                         } else {
@@ -453,6 +457,7 @@ pub fn render_chunk(
         }
     }
 }
+
 pub fn derender_chunk(commands: &mut Commands, chunk: &mut Chunk) {
     //Despawns each entity and un asigns them
     chunk.rendered = false;
