@@ -1,8 +1,9 @@
-use bevy::{prelude::*, render::render_resource::StencilFaceState};
-use bincode::{BorrowDecode, Decode, Encode};
+use bevy::prelude::*;
+use bincode::{Decode, Encode};
 use std::{
     fs::{create_dir_all, read, File},
     io::Write,
+    path::{Path, PathBuf},
 };
 
 use crate::{
@@ -12,6 +13,13 @@ use crate::{
     world::{RenderedBlock, Terrain},
     CharacterCamera,
 };
+
+pub const DEFAULT_SAVE_DIR: &'static str = "savedata";
+pub const DEFAULT_SAVE_FILE: &'static str = "savegame.sav";
+
+pub fn default_save_path() -> PathBuf {
+    Path::new(".").join(DEFAULT_SAVE_DIR).join(DEFAULT_SAVE_FILE)
+}
 
 pub struct SaveLoadPlugin;
 
@@ -70,14 +78,21 @@ pub fn f5_save_to_file(
     // in a real packet, we should use a pre-allocated array and encode into its slice
     match bincode::encode_to_vec(save_file, BINCODE_CONFIG) {
         Ok(encoded_vec) => {
-            // write the bytes to file
-            create_dir_all("./savedata/"); //creates the savedata folder if it is missing
+            // creates the savedata folder if it is missing
+            if let Err(e) = create_dir_all(DEFAULT_SAVE_DIR) {
+                error!("unable to create save dir, {}", e);
+                return;
+            }
+            // else it was successful
 
-            match File::create("./savedata/quicksave.sav") {
+            // open file in write-mode
+            match File::create(default_save_path()) {
                 Ok(mut file) => {
-                    file.write_all(&encoded_vec)
-                        .expect("could not write to save file");
-                    warn!("saved to file!");
+                    // write the bytes to file
+                    match file.write_all(&encoded_vec) {
+                        Ok(_) => warn!("saved to file!"),
+                        Err(e) => error!("could not write to save file, {}", e),
+                    }
                 }
                 Err(e) => {
                     error!("could not create save file, {}", e);

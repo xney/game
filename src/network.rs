@@ -12,8 +12,8 @@ pub const BINCODE_CONFIG: bincode::config::Configuration = bincode::config::stan
 
 /// placeholders
 /// TODO: remove whenever command line arguments can be parsed
-const SERVER_PORT: u16 = 8888u16;
-const SERVER_IP: [u8; 4] = [127, 0, 0, 1];
+pub const DEFAULT_SERVER_PORT: u16 = 8888u16;
+pub const DEFAULT_SERVER_IP: [u8; 4] = [127, 0, 0, 1];
 
 /// Default size of allocated bodies vec, larger numbers may help reduce reallocation
 const DEFAULT_BODIES_VEC_CAPACITY: usize = 10;
@@ -106,7 +106,7 @@ pub mod server {
     use super::*;
     use crate::states;
     use bevy::prelude::*;
-    use std::{net::{SocketAddr, UdpSocket}, collections::HashMap};
+    use std::{net::{SocketAddr, UdpSocket}, path::PathBuf, collections::HashMap};
 
     const NETWORK_TICK_DELAY: u64 = 60;
     const MAX_CLIENTS: usize = 2; // final goal = 2, strech goal = 4
@@ -145,7 +145,7 @@ pub mod server {
     impl Server {
         /// Binds the socket
         fn new(port: u16) -> Result<Self, std::io::Error> {
-            let addr = SocketAddr::from((SERVER_IP, port));
+            let addr = SocketAddr::from((DEFAULT_SERVER_IP, port));
             let sock = UdpSocket::bind(addr)?;
 
             // we want nonblocking sockets!
@@ -206,7 +206,7 @@ pub mod server {
     /// Bevy plugin that implements server logic
     pub struct ServerPlugin {
         pub port: u16,
-        pub filename: String
+        pub save_file: PathBuf
     }
 
     impl Plugin for ServerPlugin {
@@ -229,7 +229,7 @@ pub mod server {
 
     fn create_server(mut commands: Commands) {
         // TODO: use command line arguments for port and handle failure better
-        let server = match Server::new(SERVER_PORT) {
+        let server = match Server::new(DEFAULT_SERVER_PORT) {
             Ok(s) => s,
             Err(e) => panic!("Unable to create server: {}", e),
         };
@@ -463,7 +463,7 @@ pub mod client {
     }
 
     fn create_client(mut commands: Commands) {
-        let client = match Client::new(SocketAddr::from((SERVER_IP, SERVER_PORT))) {
+        let client = match Client::new(SocketAddr::from((DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT))) {
             Ok(s) => s,
             Err(e) => panic!("Unable to create client: {}", e),
         };
