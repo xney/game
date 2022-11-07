@@ -4,15 +4,12 @@ use std::{
 };
 
 use bevy::prelude::info;
-use rand::{rngs::StdRng, Rng, SeedableRng};
-use rand_distr::{Binomial, Distribution, Normal};
+use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
+use rand_distr::{Binomial, Distribution};
 
 use crate::world::{BlockType, Cave, Vein, CHUNK_HEIGHT, CHUNK_WIDTH};
 
-const APPROX_CAVES_PER_CHUNK: f64 = 6.0;
-const AVG_CAVE_WIDTH: f32 = 6.;
-const CAVE_STANDARD_DEV: f32 = 2.;
-const CAVE_BOARDER_NOISE: f32 = 1.5;
+const FREQUENCY: f32 = 4.;
 
 pub fn generate_seed(base_seed: u64, additional_data: Vec<u64>) -> u64 {
     let mut s = DefaultHasher::new();
@@ -126,58 +123,97 @@ pub fn dist_to_vein(vein: &Vein, x: f32, y: f32) -> f32 {
     dist_sq(x, y, vx1 + (proj * (vx2 - vx1)), vy1 + (proj * (vy2 - vy1)))
 }
 
-pub fn generate_random_cave_count(seed: u64, chunk_number: u64) -> u64 {
-    let mut rand = StdRng::seed_from_u64(generate_seed(seed, vec![chunk_number]));
-    let bindist = Binomial::new(
-        (CHUNK_WIDTH * CHUNK_HEIGHT) as u64,
-        APPROX_CAVES_PER_CHUNK / (CHUNK_WIDTH * CHUNK_HEIGHT) as f64,
-    )
-    .unwrap();
-    let value = bindist.sample(&mut rand);
-
-    return value;
-}
-
-pub fn generate_random_cave(seed: u64, chunk_number: u64, cave_number: u64) -> Cave {
-    let mut rand = StdRng::seed_from_u64(generate_seed(seed, vec![chunk_number, cave_number]));
-
-    let start_x = rand.gen_range(0..CHUNK_WIDTH);
-    let start_y = rand.gen_range(0..CHUNK_HEIGHT);
-
-    let a = Normal::new(AVG_CAVE_WIDTH, CAVE_STANDARD_DEV)
-        .unwrap()
-        .sample(&mut rand);
-    let b = Normal::new(AVG_CAVE_WIDTH, CAVE_STANDARD_DEV / 2.)
-        .unwrap()
-        .sample(&mut rand);
+pub fn generate_random_cave(seed: u64, chunk_number: u64) -> Cave {
+    let cave_map = generate_perlin_noise(chunk_number, seed);
 
     return Cave {
         block_type: BlockType::CaveVoid,
         chunk_number,
-        cave_number,
-        start_x,
-        start_y,
-        a,
-        b,
+        cave_map,
     };
 }
 
-//Defines oval boarder of Cave, adds noise to circumference of oval to make caves more random
-pub fn is_point_in_cave(cave: &Cave, x: usize, y: usize, seed: u64) -> bool {
-    let mut rand = StdRng::seed_from_u64(generate_seed(
-        seed,
-        vec![cave.chunk_number, cave.cave_number],
-    ));
+pub fn generate_perlin_noise(chunk_number: u64, seed: u64) -> [[f32; CHUNK_WIDTH]; CHUNK_HEIGHT] {
+    let mut noise_map = [[0. as f32; CHUNK_WIDTH]; CHUNK_HEIGHT];
 
-    let x0 = cave.start_x as f32;
-    let y0 = cave.start_y as f32;
+    for chunk_x in 0..CHUNK_WIDTH {
+        for chunk_y in 0..CHUNK_HEIGHT {
+            let phys_y = (chunk_number as usize * CHUNK_HEIGHT) + chunk_y;
 
-    let dist = ((x0 - x as f32).powf(2.) / cave.a.powf(2.) as f32)
-        + ((y0 - y as f32).powf(2.) as f32 / cave.b.powf(2.) as f32);
+            let x = chunk_x as f32 / CHUNK_WIDTH as f32;
+            let y = phys_y as f32 / CHUNK_HEIGHT as f32;
 
-    let noise = Normal::new(1., CAVE_BOARDER_NOISE)
-        .unwrap()
-        .sample(&mut rand);
+            let n = noise((x * FREQUENCY) as f32, (y * FREQUENCY) as f32, seed);
 
-    return dist <= noise;
+            noise_map[chunk_y][chunk_x] = n;
+        }
+    }
+
+    return noise_map;
+}
+
+pub fn noise(x: f32, y: f32, seed: u64) -> f32 {
+    let xi = x.floor() as usize & 255;
+    let yi = y.floor() as usize & 255;
+
+    let p = generate_perlin_hash_table(seed);
+
+    let g1 = p[p[xi] + yi];
+    let g2 = p[p[xi + 1] + yi];
+    let g3 = p[p[xi] + yi + 1];
+    let g4 = p[p[xi + 1] + yi + 1];
+
+    let xf = x - x.floor();
+    let yf = y - y.floor();
+
+    let d1 = grad(g1, xf, yf);
+    let d2 = grad(g2, xf - 1., yf);
+    let d3 = grad(g3, xf, yf - 1.);
+    let d4 = grad(g4, xf - 1., yf - 1.);
+
+    let u = fade(xf);
+    let v = fade(yf);
+
+    let x1_inter = lerp(u, d1, d2);
+    let x2_inter = lerp(u, d3, d4);
+    let y_inter = lerp(v, x1_inter, x2_inter);
+
+    return y_inter;
+}
+
+pub fn grad(hash: usize, x: f32, y: f32) -> f32 {
+    return match hash & 3 {
+        0 => x + y,
+        1 => -x + y,
+        2 => x - y,
+        3 => -x - y,
+        _ => 0.,
+    };
+}
+
+pub fn fade(t: f32) -> f32 {
+    return t * t * t * (t * (t * 6. - 15.) + 10.);
+}
+
+//Linearly interpolate values a and b
+pub fn lerp(a: f32, b: f32, lambda: f32) -> f32 {
+    return (1. - lambda) * a + lambda * b;
+}
+
+pub fn generate_perlin_hash_table(seed: u64) -> [usize; 512] {
+    let mut rand = StdRng::seed_from_u64(seed);
+    let mut vals = [0; 256];
+    for i in 0..256 {
+        vals[i] = i;
+    }
+
+    vals.shuffle(&mut rand);
+
+    let mut hash_table = [0 as usize; 512];
+    for i in 0..256 {
+        hash_table[i] = vals[i];
+        hash_table[i + 256] = vals[i];
+    }
+
+    return hash_table;
 }

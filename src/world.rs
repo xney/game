@@ -5,8 +5,7 @@ use std::io::Write;
 use crate::{
     network::BINCODE_CONFIG,
     procedural_functions::{
-        self, dist_to_vein, generate_random_cave, generate_random_cave_count, generate_random_vein,
-        generate_random_vein_count, is_point_in_cave,
+        self, dist_to_vein, generate_random_cave, generate_random_vein, generate_random_vein_count,
     },
     save, states,
 };
@@ -19,6 +18,9 @@ pub const CHUNK_WIDTH: usize = 128;
 
 const BASE_SEED: u64 = 82981925813;
 
+//Increase for smaller caves
+//Decrease for bigger caves
+const PERLIN_CAVE_THRESHOLD: f32 = 1.75;
 pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
@@ -98,9 +100,7 @@ impl Terrain {
             for vein_number in 0..generate_random_vein_count(BASE_SEED, chunk_number) {
                 veins.push(Vein::new(chunk_number, vein_number));
             }
-            for cave_number in 0..generate_random_cave_count(BASE_SEED, chunk_number) {
-                caves.push(Cave::new(chunk_number, cave_number));
-            }
+            caves.push(Cave::new(chunk_number));
         }
 
         let chunks = (0..num_chunks)
@@ -182,20 +182,10 @@ impl Chunk {
 
                 for cave in caves {
                     if depth > 0
-                        && ((cave.chunk_number == depth - 1) || (cave.chunk_number == depth))
+                        && (cave.chunk_number == depth - 1) || (cave.chunk_number == depth)
                     {
-                        let mut y_offset = if depth > cave.chunk_number {
-                            CHUNK_HEIGHT
-                        } else {
-                            0
-                        };
-
-                        y_offset = y + y_offset;
-
-                        //Calculates if given point (x,y) is in oval defined by Cave
-                        //Seed is needed to add noise to the edges of the oval
-                        if is_point_in_cave(cave, x, y + y_offset, BASE_SEED) {
-                            block_type = cave.block_type;
+                        if cave.cave_map[y][x] > PERLIN_CAVE_THRESHOLD {
+                            block_type = BlockType::CaveVoid;
                         }
                     }
                 }
@@ -285,16 +275,12 @@ impl Vein {
 pub struct Cave {
     pub block_type: BlockType,
     pub chunk_number: u64,
-    pub cave_number: u64,
-    pub start_x: usize, //Oval Formula (x^2)/(a^2) + (y^2)/(b^2) = scale
-    pub start_y: usize,
-    pub a: f32,
-    pub b: f32,
+    pub cave_map: [[f32; CHUNK_WIDTH]; CHUNK_HEIGHT],
 }
 
 impl Cave {
-    pub fn new(chunk_number: u64, cave_number: u64) -> Self {
-        generate_random_cave(BASE_SEED, chunk_number, cave_number)
+    pub fn new(chunk_number: u64) -> Self {
+        generate_random_cave(BASE_SEED, chunk_number)
     }
 }
 
@@ -387,12 +373,6 @@ pub fn generate_chunk_veins(chunk_number: u64, terrain: &mut Terrain) {
     }
 }
 
-pub fn generate_chunk_caves(chunk_number: u64, terrain: &mut Terrain) {
-    for cave_number in 0..generate_random_cave_count(BASE_SEED, chunk_number) {
-        terrain.caves.push(Cave::new(chunk_number, cave_number));
-    }
-}
-
 /// Create all blocks in chunk as actual entities (and store references to entity in chunk.blocks)
 pub fn spawn_chunk(
     chunk_number: u64,
@@ -401,7 +381,7 @@ pub fn spawn_chunk(
     terrain: &mut Terrain,
 ) {
     generate_chunk_veins(chunk_number, terrain);
-    generate_chunk_caves(chunk_number, terrain);
+    terrain.caves.push(Cave::new(chunk_number));
 
     let mut chunk = Chunk::new(chunk_number, &(terrain.veins), &(terrain.caves));
 

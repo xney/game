@@ -21,8 +21,7 @@ fn main() {
     let args = args::get_args();
     let mut app = App::new();
 
-    app
-        .add_plugins(DefaultPlugins)
+    app.add_plugins(DefaultPlugins)
         .add_plugin(states::StatePlugin)
         .add_plugin(credit_image::CreditImagePlugin)
         .add_plugin(menu::MenuPlugin)
