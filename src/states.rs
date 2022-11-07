@@ -24,7 +24,8 @@ pub struct StatePlugin;
 impl Plugin for StatePlugin {
     fn build(&self, app: &mut App) {
         app.add_state::<GameState>(GameState::default())
-            .add_system(input_state_change);
+            .add_system(input_state_change)
+            .add_system(ctrl_q_quit);
     }
 }
 
@@ -46,5 +47,13 @@ fn input_state_change(mut state: ResMut<State<GameState>>, input: Res<Input<KeyC
             Ok(_) => info!("successfully changed GameState"),
             Err(e) => error!("unable to change GameState, {}", e),
         }
+    }
+}
+
+/// Immediately end the process
+fn ctrl_q_quit(input: Res<Input<KeyCode>>) {
+    if input.pressed(KeyCode::Q) && input.pressed(KeyCode::LControl) {
+        warn!("ctrl-Q detected -- exiting!");
+        std::process::exit(0);
     }
 }

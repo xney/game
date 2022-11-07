@@ -24,3 +24,32 @@ In VSCode, it can be found as an extension.
 1. Set your editor to remove trailing whitespace.
 
 [bevy-fast]: https://bevyengine.org/learn/book/getting-started/setup/#enable-fast-compiles-optional
+
+# Game Controls
+## Movement
+- A/D: move left/right
+- Space: jump
+- F7: hold to debug block collisions (_lots_ of console spam)
+
+## Mining
+- LMB: hold to mine block under cursor
+- RMB: instantly mine block under cursor
+- G: randomly destroy blocks in first chunk
+
+## Debug Camera
+- Arrow keys: move free look camera
+- R: re-center camera to player
+
+## Network
+- O: toggle network loss simulation (drop all packets in and out)
+- P: queue a ping to be sent to the server
+
+## Game States
+- F1: force-cycle game state (menu -> game -> credits)
+- Ctrl+Q: quit game
+
+## Save/Load
+- F2: dump terrain information into the console
+- F5: quicksave
+- F6: quickload
+

@@ -8,11 +8,10 @@ use crate::{
         self, dist_to_vein, generate_random_cave, generate_random_cave_count, generate_random_vein,
         generate_random_vein_count, is_point_in_cave,
     },
-    states,
-    save,
+    save, states,
 };
 
-use bincode::{Decode, Encode, BorrowDecode};
+use bincode::{BorrowDecode, Decode, Encode};
 use rand::Rng;
 
 pub const CHUNK_HEIGHT: usize = 32;
@@ -138,7 +137,7 @@ pub struct Chunk {
 
 impl Chunk {
     pub fn new(depth: u64, veins: &Vec<Vein>, caves: &Vec<Cave>) -> Self {
-        // For now: populate entire Chunk with Sandstone
+        // start with empty chunk
         let mut c = Chunk {
             blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
             chunk_number: depth,
@@ -153,7 +152,9 @@ impl Chunk {
                 // Check if this is within the bounds of an ore vein
                 for vein in veins {
                     // Only look at veins originating in previous or current chunk
-                    if (vein.chunk_number == depth - 1) || (vein.chunk_number == depth) {
+                    if depth > 0
+                        && ((vein.chunk_number == depth - 1) || (vein.chunk_number == depth))
+                    {
                         let y_offset = if depth > vein.chunk_number {
                             CHUNK_HEIGHT
                         } else {
@@ -180,7 +181,9 @@ impl Chunk {
                 }
 
                 for cave in caves {
-                    if (cave.chunk_number == depth - 1) || (cave.chunk_number == depth) {
+                    if depth > 0
+                        && ((cave.chunk_number == depth - 1) || (cave.chunk_number == depth))
+                    {
                         let mut y_offset = if depth > cave.chunk_number {
                             CHUNK_HEIGHT
                         } else {
@@ -407,6 +410,7 @@ pub fn spawn_chunk(
     // add the chunk to our terrain resource
     terrain.chunks.push(chunk);
 }
+
 pub fn render_chunk(
     chunk_number: u64,
     commands: &mut Commands,
@@ -446,6 +450,7 @@ pub fn render_chunk(
         }
     }
 }
+
 pub fn derender_chunk(commands: &mut Commands, chunk: &mut Chunk) {
     //Despawns each entity and un asigns them
     chunk.rendered = false;
@@ -645,7 +650,11 @@ fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
 }
 
 // Load world from vec (assumes terrain is cleared)
-pub fn spawn_sprites_from_terrain(commands: &mut Commands, assets: &AssetServer, terrain: &mut Terrain) {
+pub fn spawn_sprites_from_terrain(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    terrain: &mut Terrain,
+) {
     for chunk in &mut terrain.chunks {
         for x in 0..CHUNK_WIDTH {
             for y in 0..CHUNK_HEIGHT {
