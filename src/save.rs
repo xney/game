@@ -77,7 +77,7 @@ pub fn f5_save_to_file(
     // the struct to serialize
     let save_file = SaveFile {
         player_coords: (x_block_index, y_block_index),
-        terrain: &mut terrain.as_ref(),
+        terrain: terrain.as_ref(),
     };
 
     // try to encode, allocating a vec
@@ -123,17 +123,24 @@ pub fn f6_load_from_file(
     if !input.just_pressed(KeyCode::F6) {
         return;
     }
-    match read("./savedata/quicksave.sav") {
+    match read(default_save_path()) {
         Ok(encoded_vec) => {
+            // try to load the world and player
+            let mut decoded: LoadFile =
+                match bincode::decode_from_slice(&encoded_vec, BINCODE_CONFIG) {
+                    Ok((load, _size)) => load,
+                    Err(e) => {
+                        error!("unable to decode save file: {}", e);
+                        return;
+                    }
+                };
             // clear rendered blocks and delete player
             for entity in query.iter() {
                 commands.entity(entity).despawn();
             }
             commands.remove_resource::<Terrain>();
-            // load the world and player
-            let mut decoded: LoadFile = bincode::decode_from_slice(&encoded_vec, BINCODE_CONFIG)
-                .unwrap()
-                .0;
+
+            // spawn new terrain and player
             crate::world::spawn_sprites_from_terrain(&mut commands, &assets, &mut decoded.terrain);
             crate::player::spawn_player_pos(
                 decoded.player_coords,
