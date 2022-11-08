@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, render::render_resource::Texture};
 
 mod args;
 mod credit_image;
@@ -22,9 +22,6 @@ fn main() {
     warn!("game arguments: {:?}", args);
     let mut app = App::new();
 
-    // common plugins for both client and server
-
-    warn!("game arguments: {:?}", args);
     match args {
         args::GameArgs::Server(s) => {
             // server specific plugins
@@ -71,6 +68,7 @@ fn main() {
                     c.spawn_bundle(Camera2dBundle::default())
                         .insert(CharacterCamera);
                 })
+                .add_startup_system(setup_background)
                 // TODO: rework for client
                 .add_plugin(world::client::WorldPlugin)
                 .add_plugin(player::PlayerPlugin)
@@ -86,4 +84,15 @@ fn main() {
     }
 
     app.run();
+}
+
+fn setup_background(mut c: Commands, asset_server: Res<AssetServer>) {
+    c.spawn_bundle(SpriteBundle {
+        texture: asset_server.load("Background1.png"),
+        transform: Transform {
+            scale: Vec3::from_array([8., 8., 0.]),
+            ..default()
+        },
+        ..default()
+    });
 }
