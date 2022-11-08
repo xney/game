@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use std::fs::*;
 use std::io::Write;
-
 use crate::{
     network::BINCODE_CONFIG,
     procedural_functions::{
@@ -151,7 +150,7 @@ impl Chunk {
             chunk_number: depth,
             rendered: false,
         };
-
+        let mut tree= true;
         // Loop through chunk, filling in where blocks should be
         for x in 0..CHUNK_WIDTH {
             for y in 0..CHUNK_HEIGHT {
@@ -203,14 +202,82 @@ impl Chunk {
                         entity: None,
                     });
                 } else {
-                    c.blocks[y][x] = None;
+                    //Checks if you can make trees, if there is room for a tree, and the block it would place a tree is sandstone 
+                    if tree && y>4 && y<CHUNK_HEIGHT-1 && x>4 && c.blocks[y+1][x-2]!=None && c.blocks[y+1][x-2].unwrap().block_type == BlockType::Sandstone
+                    {
+                        //sees how tall it can make the tree
+                        let mut max = 0;
+                        for height in (0..=y).rev()
+                        {
+                            if c.blocks[height][x-2]!=None
+                            {
+                                max=height;
+                                break;
+                            }
+                        }
+                        if y-max>2
+                        {
+                            //Randomizes the height of the tree
+                             let random_height = procedural_functions::generate_random_values(
+                                BASE_SEED+x as u64, //adds x to make it more random if it has the same max and current y position
+                                2,
+                                max,y
+                                );
+                                max = *random_height.get(0).unwrap() as usize;
+                        }
+                        if y-max > 2 && structure_fit(c.blocks,x,max)
+                        {
+                            // 02220
+                            // 02120
+                            // 00100
+                            // 00100
+                            //Creates the trunk
+                            for height in (max+1..=y).rev()
+                            {
+                              
+                                c.blocks[height][x-2] = Some(Block {
+                                    block_type: BlockType::Trunk,
+                                    entity: None,
+                                });
+                            }
+                            //Creates the Leaves
+                            c.blocks[max+1][x-1] = Some(Block {
+                                block_type: BlockType::Leaves,
+                                entity: None,
+                            });
+                            c.blocks[max+1][x-2] = Some(Block {
+                                block_type: BlockType::Leaves,
+                                entity: None,
+                            });
+                            c.blocks[max+1][x-3] = Some(Block {
+                                block_type: BlockType::Leaves,
+                                entity: None,
+                            });
+                            c.blocks[max+2][x-1] = Some(Block {
+                                block_type: BlockType::Leaves,
+                                entity: None,
+                            });
+                            c.blocks[max+2][x-3] = Some(Block {
+                                block_type: BlockType::Leaves,
+                                entity: None,
+                            });
+                        // tree=false;
+                        }
+                        else {
+                            c.blocks[y][x] = None;
+                        }
+                    }
+                    else
+                    {
+                        c.blocks[y][x] = None;
+                    }
                 }
             }
         }
 
         return c;
     }
-
+   
     pub fn new_surface(veins: &Vec<Vein>) -> Self {
         // Create surface chunk with perlin slice functions
 
@@ -289,7 +356,16 @@ impl Chunk {
         return c;
     }
 }
-
+fn structure_fit(blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT], x: usize , y: usize) ->bool{
+    if x >4 && x< CHUNK_WIDTH
+    {   
+        if blocks[y][x-3] == None && blocks[y][x-1] == None && blocks[y+1][x-1] == None && blocks[y+1][x-3] == None && blocks[y+2][x-1] == None && blocks[y+2][x-3] == None
+        {
+            return true;
+        }
+    }
+    return false;
+}
 /// Represents an ore vein; stored in the Terrain resource
 #[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Vein {
@@ -394,6 +470,8 @@ pub enum BlockType {
     CaveVoid,
     Sand,
     PalmTreeBlock,
+    Leaves,
+    Trunk
 }
 
 impl BlockType {
@@ -405,6 +483,8 @@ impl BlockType {
             BlockType::CaveVoid => "",
             BlockType::Sand => "Sand.png",
             BlockType::PalmTreeBlock => "PalmTreeBlock.png",
+            BlockType::Leaves => "Leaves.png",
+            BlockType::Trunk => "Trunk.png"
         }
     }
 }
@@ -414,7 +494,6 @@ pub fn generate_chunk_veins(chunk_number: u64, terrain: &mut Terrain) {
         terrain.veins.push(Vein::new(chunk_number, vein_number));
     }
 }
-
 /// Create all blocks in chunk as actual entities (and store references to entity in chunk.blocks)
 pub fn spawn_chunk(
     chunk_number: u64,
@@ -424,9 +503,7 @@ pub fn spawn_chunk(
 ) {
     generate_chunk_veins(chunk_number, terrain);
     terrain.caves.push(Cave::new(chunk_number));
-
     let mut chunk = Chunk::new(chunk_number, &(terrain.veins), &(terrain.caves));
-
     //Calls function to loop through and create the entities and render them
     render_chunk(chunk_number, commands, assets, &mut chunk);
     // add the chunk to our terrain resource
