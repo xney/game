@@ -1,8 +1,9 @@
-use bevy::{prelude::*, render::render_resource::StencilFaceState};
-use bincode::{BorrowDecode, Decode, Encode};
+use bevy::prelude::*;
+use bincode::{Decode, Encode};
 use std::{
     fs::{create_dir_all, read, File},
     io::Write,
+    path::{Path, PathBuf},
 };
 
 use crate::{
@@ -13,15 +14,28 @@ use crate::{
     CharacterCamera,
 };
 
-pub struct SaveLoadPlugin;
+pub const DEFAULT_SAVE_DIR: &'static str = "savedata";
+pub const DEFAULT_SAVE_FILE: &'static str = "savegame.sav";
 
-impl Plugin for SaveLoadPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_system_set(
-            SystemSet::on_update(states::GameState::InGame)
-                .with_system(f5_save_to_file)
-                .with_system(f6_load_from_file),
-        );
+pub fn default_save_path() -> PathBuf {
+    Path::new(".")
+        .join(DEFAULT_SAVE_DIR)
+        .join(DEFAULT_SAVE_FILE)
+}
+
+pub mod client {
+
+    use super::*;
+    pub struct SaveLoadPlugin;
+
+    impl Plugin for SaveLoadPlugin {
+        fn build(&self, app: &mut App) {
+            app.add_system_set(
+                SystemSet::on_update(states::client::GameState::InGame)
+                    .with_system(f5_save_to_file)
+                    .with_system(f6_load_from_file),
+            );
+        }
     }
 }
 
@@ -63,21 +77,28 @@ pub fn f5_save_to_file(
     // the struct to serialize
     let save_file = SaveFile {
         player_coords: (x_block_index, y_block_index),
-        terrain: &mut terrain.as_ref(),
+        terrain: terrain.as_ref(),
     };
 
     // try to encode, allocating a vec
     // in a real packet, we should use a pre-allocated array and encode into its slice
     match bincode::encode_to_vec(save_file, BINCODE_CONFIG) {
         Ok(encoded_vec) => {
-            // write the bytes to file
-            create_dir_all("./savedata/"); //creates the savedata folder if it is missing
+            // creates the savedata folder if it is missing
+            if let Err(e) = create_dir_all(DEFAULT_SAVE_DIR) {
+                error!("unable to create save dir, {}", e);
+                return;
+            }
+            // else it was successful
 
-            match File::create("./savedata/quicksave.sav") {
+            // open file in write-mode
+            match File::create(default_save_path()) {
                 Ok(mut file) => {
-                    file.write_all(&encoded_vec)
-                        .expect("could not write to save file");
-                    warn!("saved to file!");
+                    // write the bytes to file
+                    match file.write_all(&encoded_vec) {
+                        Ok(_) => warn!("saved to file!"),
+                        Err(e) => error!("could not write to save file, {}", e),
+                    }
                 }
                 Err(e) => {
                     error!("could not create save file, {}", e);
@@ -102,17 +123,24 @@ pub fn f6_load_from_file(
     if !input.just_pressed(KeyCode::F6) {
         return;
     }
-    match read("./savedata/quicksave.sav") {
+    match read(default_save_path()) {
         Ok(encoded_vec) => {
+            // try to load the world and player
+            let mut decoded: LoadFile =
+                match bincode::decode_from_slice(&encoded_vec, BINCODE_CONFIG) {
+                    Ok((load, _size)) => load,
+                    Err(e) => {
+                        error!("unable to decode save file: {}", e);
+                        return;
+                    }
+                };
             // clear rendered blocks and delete player
             for entity in query.iter() {
                 commands.entity(entity).despawn();
             }
             commands.remove_resource::<Terrain>();
-            // load the world and player
-            let mut decoded: LoadFile = bincode::decode_from_slice(&encoded_vec, BINCODE_CONFIG)
-                .unwrap()
-                .0;
+
+            // spawn new terrain and player
             crate::world::spawn_sprites_from_terrain(&mut commands, &assets, &mut decoded.terrain);
             crate::player::spawn_player_pos(
                 decoded.player_coords,

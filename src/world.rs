@@ -17,22 +17,30 @@ pub const CHUNK_WIDTH: usize = 128;
 
 const BASE_SEED: u64 = 82981925813;
 
-//Increase for smaller caves
-//Decrease for bigger caves
+/// Increase for smaller caves
+/// Decrease for bigger caves
 const PERLIN_CAVE_THRESHOLD: f32 = 1.75;
-pub struct WorldPlugin;
 
-impl Plugin for WorldPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_system_set(
-            SystemSet::on_enter(states::GameState::InGame).with_system(create_world),
-        )
-        .add_system_set(
-            SystemSet::on_update(states::GameState::InGame)
-                .with_system(f2_prints_terrain)
-                .with_system(g_deletes_random_block),
-        )
-        .add_system_set(SystemSet::on_exit(states::GameState::InGame).with_system(destroy_world));
+pub mod client {
+    use super::*;
+    pub struct WorldPlugin;
+
+    impl Plugin for WorldPlugin {
+        fn build(&self, app: &mut App) {
+            // TODO: get baseline terrain from server, then insert it as a resource
+            // then make a system that spawns in the entities from the resource
+            app.add_system_set(
+                SystemSet::on_enter(states::client::GameState::InGame).with_system(create_world),
+            )
+            .add_system_set(
+                SystemSet::on_update(states::client::GameState::InGame)
+                    .with_system(f2_prints_terrain)
+                    .with_system(g_deletes_random_block),
+            )
+            .add_system_set(
+                SystemSet::on_exit(states::client::GameState::InGame).with_system(destroy_world),
+            );
+        }
     }
 }
 
@@ -76,7 +84,7 @@ fn destroy_world(mut commands: Commands, query: Query<Entity, With<RenderedBlock
 
 /// Represents all chunks in the game world
 /// Should be a global resource
-#[derive(Encode, Decode, Debug, PartialEq)]
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Terrain {
     /// Vector of chunks, each one contains its own chunk_number
     /// TODO: potentially convert into a symbol table for faster lookups?
@@ -90,7 +98,7 @@ pub struct Terrain {
 impl Terrain {
     /// Create a terrain with specified number of chunks
     /// Chunks contain default blocks and are numbered from 0 to len-1
-    fn new(num_chunks: u64) -> Terrain {
+    pub fn new(num_chunks: u64) -> Terrain {
         // Generate veins for each chunk before generating the chunks so chunks can use them
         let mut veins: Vec<Vein> = Vec::new();
         let mut caves: Vec<Cave> = Vec::new();
@@ -114,7 +122,7 @@ impl Terrain {
     }
 
     /// Creates a terrain with no chunks
-    fn empty() -> Terrain {
+    pub fn empty() -> Terrain {
         Terrain {
             chunks: Vec::new(),
             veins: Vec::new(),
@@ -125,7 +133,7 @@ impl Terrain {
 
 /// Represents a chunk of blocks; stored in the Terrain resource
 /// TODO: maybe custom bitpack for Encode and Decode?
-#[derive(Encode, Decode, Debug, PartialEq)]
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Chunk {
     /// 2D array [x, y]
     pub blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT],
@@ -180,8 +188,7 @@ impl Chunk {
                 }
 
                 for cave in caves {
-                    if depth > 0
-                        && (cave.chunk_number == depth - 1) || (cave.chunk_number == depth)
+                    if depth > 0 && (cave.chunk_number == depth - 1) || (cave.chunk_number == depth)
                     {
                         if cave.cave_map[y][x] > PERLIN_CAVE_THRESHOLD {
                             block_type = BlockType::CaveVoid;
@@ -293,25 +300,25 @@ impl Chunk {
         let random_trees = procedural_functions::generate_random_values(
             BASE_SEED, //Use hard-coded seed for now
             CHUNK_WIDTH,
-            0,CHUNK_WIDTH/8
+            0,
+            CHUNK_WIDTH / 8,
         );
 
         // Loop through chunk, filling in where blocks should be
         for x in 0..CHUNK_WIDTH {
             let hill_top = procedural_functions::slice_pos_x(x, &random_vals).round() as usize - 1;
-            let sand_depth = procedural_functions::slice_pos_x(x, &random_sand_depths).round() as usize - 1;
-            
-            if(random_trees[x] == 1){
+            let sand_depth =
+                procedural_functions::slice_pos_x(x, &random_sand_depths).round() as usize - 1;
+
+            if random_trees[x] == 1 {
                 let block_type = BlockType::PalmTreeBlock;
 
-                c.blocks[hill_top-1][x] = Some(Block {
+                c.blocks[hill_top - 1][x] = Some(Block {
                     block_type,
                     entity: None,
                 });
             }
-            for y in 
-              hill_top..sand_depth
-            {
+            for y in hill_top..sand_depth {
                 let block_type = BlockType::Sand;
 
                 c.blocks[y][x] = Some(Block {
@@ -320,8 +327,7 @@ impl Chunk {
                 });
             }
 
-            for y in sand_depth..CHUNK_HEIGHT
-            {
+            for y in sand_depth..CHUNK_HEIGHT {
                 let mut block_type = BlockType::Sandstone;
 
                 // Check if this is within the bounds of an ore vein
@@ -361,7 +367,7 @@ fn structure_fit(blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT], x: usize 
     return false;
 }
 /// Represents an ore vein; stored in the Terrain resource
-#[derive(Encode, Decode, Debug, PartialEq)]
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Vein {
     pub block_type: BlockType,
     pub chunk_number: u64,
@@ -379,7 +385,7 @@ impl Vein {
     }
 }
 
-#[derive(Encode, Decode, Debug, PartialEq)]
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Cave {
     pub block_type: BlockType,
     pub chunk_number: u64,
@@ -478,8 +484,7 @@ impl BlockType {
             BlockType::Sand => "Sand.png",
             BlockType::PalmTreeBlock => "PalmTreeBlock.png",
             BlockType::Leaves => "Leaves.png",
-            BlockType::Trunk => "Trunk.png",
-
+            BlockType::Trunk => "Trunk.png"
         }
     }
 }

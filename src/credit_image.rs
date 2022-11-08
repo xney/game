@@ -8,13 +8,14 @@ pub struct CreditImagePlugin;
 impl Plugin for CreditImagePlugin {
     fn build(&self, app: &mut App) {
         app.add_system_set(
-            SystemSet::on_enter(states::GameState::Credits).with_system(init_credits),
+            SystemSet::on_enter(states::client::GameState::Credits).with_system(init_credits),
         )
         .add_system_set(
-            SystemSet::on_update(states::GameState::Credits).with_system(timer_change_credit_image),
+            SystemSet::on_update(states::client::GameState::Credits)
+                .with_system(timer_change_credit_image),
         )
         .add_system_set(
-            SystemSet::on_exit(states::GameState::Credits).with_system(destroy_credits),
+            SystemSet::on_exit(states::client::GameState::Credits).with_system(destroy_credits),
         );
     }
 }

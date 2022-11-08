@@ -1,55 +1,43 @@
-use std::{net::IpAddr, str::FromStr};
+use std::net::IpAddr;
+use std::path::PathBuf;
 
-use std::env;
+use clap::{Args, Parser};
 
+use crate::{network, save};
+
+pub fn get_args() -> GameArgs {
+    GameArgs::parse()
+}
+
+#[derive(Parser, Debug)]
 pub enum GameArgs {
     /// Server mode
     Server(ServerArgs),
 
     /// Client mode
     Client(ClientArgs),
-
-    None,
 }
 
-// TODO: figure out clap or at least use a Result
-pub fn get_args() -> GameArgs {
-    let tokens: Vec<String> = env::args().collect();
-
-    if tokens.len() == 1 {
-        return GameArgs::None;
-    }
-    let first = tokens.get(1).expect("missing client/server");
-    if first == "client" {
-        return GameArgs::Client(ClientArgs {
-            port: u16::from_str(tokens.get(2).expect("missing port"))
-                .expect("unable to parse port"),
-            server_ip: IpAddr::from_str(tokens.get(3).expect("missing server ip"))
-                .expect("unable to parse server ip"),
-        });
-    }
-    if first == "server" {
-        return GameArgs::Server(ServerArgs {
-            port: u16::from_str(tokens.get(2).expect("missing port"))
-                .expect("unable to parse port"),
-            filename: tokens.get(3).expect("missing save filename").to_string(),
-        });
-    }
-    panic!("first argument must be client or server");
-}
-
+#[derive(Args, Debug)]
+// #[command(arg_required_else_help(true))]
 pub struct ServerArgs {
-    /// Port to open server on
-    pub port: u16,
-
     /// File to load and save to
-    pub filename: String,
+    #[arg(short = 'f', long = "file", default_value_os_t = save::default_save_path())]
+    pub save_file: PathBuf,
+
+    /// Port to open server on
+    #[arg(short = 'p', long, default_value_t = network::DEFAULT_SERVER_PORT)]
+    pub port: u16,
 }
 
+#[derive(Args, Debug)]
+// #[command(arg_required_else_help(true))]
 pub struct ClientArgs {
     /// Address of server
+    #[arg(short = 'i', long = "ip", default_value_t = network::DEFAULT_SERVER_IP.into())]
     pub server_ip: IpAddr,
 
     /// Port of server
-    pub port: u16,
+    #[arg(short = 'p', long, default_value_t = network::DEFAULT_SERVER_PORT)]
+    pub server_port: u16,
 }

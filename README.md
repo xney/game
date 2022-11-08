@@ -21,6 +21,7 @@ Make sure your code actually compiles.
 1. Install `rustfmt` via `rustup component add rustfmt`.
 1. (Optionally) Install `rust-analyzer`.
 In VSCode, it can be found as an extension.
+1. Install `pre-commit` (`pip3 install --user pre-commit`) and install the pre-commit git hooks (`pre-commit install`).
 1. Set your editor to remove trailing whitespace.
 
 [bevy-fast]: https://bevyengine.org/learn/book/getting-started/setup/#enable-fast-compiles-optional
@@ -52,4 +53,3 @@ In VSCode, it can be found as an extension.
 - F2: dump terrain information into the console
 - F5: quicksave
 - F6: quickload
-

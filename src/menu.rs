@@ -1,6 +1,6 @@
 use bevy::{app::AppExit, ecs::system::Resource, prelude::*};
 
-use crate::states::GameState;
+use crate::states::client::GameState;
 
 //crate::states;
 
