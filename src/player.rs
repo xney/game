@@ -51,6 +51,14 @@ impl Decode for Player {
     }
 }
 
+/// Contains all inputs that the client needs to tell the server
+#[derive(Encode, Decode, Clone, Debug)]
+pub struct PlayerInput {
+    pub left: bool,
+    pub right: bool,
+    pub jump: bool
+}
+
 #[derive(Component)]
 struct JumpDuration {
     timer: Timer,

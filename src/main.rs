@@ -40,7 +40,6 @@ fn main() {
             // server world plugin
             // server player plugin
             // server save/load plugin
-            // iyes_loopless fixed time step!
             app.add_plugin(states::server::StatePlugin);
 
             // server network plugin

@@ -1,6 +1,7 @@
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 
 use super::*;
+use crate::player;
 use crate::states;
 use bevy::prelude::*;
 
@@ -73,6 +74,20 @@ impl Client {
 
         Ok(message)
     }
+
+    /// Push a body that will be sent to the server
+    fn enqueue_body(&mut self, body: ClientBodyElem) {
+        self.bodies.push(body);
+    }
+
+    /// Client logic for handling bodies received from the server
+    /// TODO: add actual logic
+    fn handle_body(&mut self, body: ServerBodyElem) {
+        match body {
+            ServerBodyElem::Pong(pong) => info!("got pong for seqnum: {}", pong),
+            ServerBodyElem::Terrain(t) => info!("got terrain, ignoring for now"),
+        }
+    }
 }
 
 pub struct ClientPlugin {
@@ -90,6 +105,7 @@ impl Plugin for ClientPlugin {
                 .with_system(o_pause_client)
                 .with_system(increase_tick.after(o_pause_client))
                 .with_system(p_queues_ping.after(increase_tick))
+                .with_system(queue_inputs.after(increase_tick))
                 .with_system(client_handle_messages.after(p_queues_ping))
                 .with_system(send_bodies.after(client_handle_messages)),
         )
@@ -145,8 +161,31 @@ fn p_queues_ping(mut client: ResMut<Client>, input: Res<Input<KeyCode>>) {
     // TODO: remove if more than one type of message can be sent
     if client.bodies.is_empty() {
         info!("client queueing a ping");
-        client.bodies.push(ClientBodyElem::Ping);
+        client.enqueue_body(ClientBodyElem::Ping);
     }
+}
+
+/// Scrape client inputs and queue up sending them to server
+fn queue_inputs(mut client: ResMut<Client>, bevy_input: Res<Input<KeyCode>>) {
+    // TODO: remove
+    // only send out once every x frames
+    if client.current_sequence % NETWORK_TICK_DELAY != 0 {
+        return;
+    }
+
+    if client.debug_paused {
+        return;
+    }
+
+    let input = player::PlayerInput {
+        left: bevy_input.pressed(KeyCode::A),
+        right: bevy_input.pressed(KeyCode::D),
+        jump: bevy_input.pressed(KeyCode::Space),
+    };
+
+    // TODO: add block mining attempts
+
+    client.enqueue_body(ClientBodyElem::Input(input));
 }
 
 /// Get and handle all messages from server
@@ -164,10 +203,13 @@ fn client_handle_messages(mut client: ResMut<Client>) {
     loop {
         match client.get_one_message() {
             Ok(message) => {
-                info!("client received message: {:?}", message);
+                info!("client received message with {} bodies", message.bodies.len());
                 // only process newer messages, ignore old ones that arrive out of orders
                 if message.header.sequence > client.last_received_sequence {
-                    // TODO: force update world
+                    // handle all bodies sent from the server
+                    for body in message.bodies {
+                        client.handle_body(body);
+                    }
 
                     // if we are desync'd
                     if client.current_sequence != message.header.sequence {
@@ -218,7 +260,7 @@ fn send_bodies(mut client: ResMut<Client>) {
             current_sequence: client.current_sequence,
             last_received_sequence: client.last_received_sequence,
         },
-        body: client.bodies.clone(),
+        bodies: client.bodies.clone(),
     };
     let success_str = format!("client sent message to server: {:?}", message);
     match client.send_message(message) {

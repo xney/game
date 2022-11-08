@@ -82,7 +82,7 @@ fn destroy_world(mut commands: Commands, query: Query<Entity, With<RenderedBlock
 
 /// Represents all chunks in the game world
 /// Should be a global resource
-#[derive(Encode, Decode, Debug, PartialEq)]
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Terrain {
     /// Vector of chunks, each one contains its own chunk_number
     /// TODO: potentially convert into a symbol table for faster lookups?
@@ -96,7 +96,7 @@ pub struct Terrain {
 impl Terrain {
     /// Create a terrain with specified number of chunks
     /// Chunks contain default blocks and are numbered from 0 to len-1
-    fn new(num_chunks: u64) -> Terrain {
+    pub fn new(num_chunks: u64) -> Terrain {
         // Generate veins for each chunk before generating the chunks so chunks can use them
         let mut veins: Vec<Vein> = Vec::new();
         let mut caves: Vec<Cave> = Vec::new();
@@ -122,7 +122,7 @@ impl Terrain {
     }
 
     /// Creates a terrain with no chunks
-    fn empty() -> Terrain {
+    pub fn empty() -> Terrain {
         Terrain {
             chunks: Vec::new(),
             veins: Vec::new(),
@@ -133,7 +133,7 @@ impl Terrain {
 
 /// Represents a chunk of blocks; stored in the Terrain resource
 /// TODO: maybe custom bitpack for Encode and Decode?
-#[derive(Encode, Decode, Debug, PartialEq)]
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Chunk {
     /// 2D array [x, y]
     pub blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT],
@@ -270,7 +270,7 @@ impl Chunk {
 }
 
 /// Represents an ore vein; stored in the Terrain resource
-#[derive(Encode, Decode, Debug, PartialEq)]
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Vein {
     pub block_type: BlockType,
     pub chunk_number: u64,
@@ -288,7 +288,7 @@ impl Vein {
     }
 }
 
-#[derive(Encode, Decode, Debug, PartialEq)]
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Cave {
     pub block_type: BlockType,
     pub chunk_number: u64,

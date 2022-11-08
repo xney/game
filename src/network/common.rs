@@ -2,6 +2,8 @@ use std::net::{SocketAddr, UdpSocket};
 
 use bincode::{Decode, Encode};
 
+use crate::{world::Terrain, player::PlayerInput};
+
 /// This is the bincode config that we should use everywhere
 pub const BINCODE_CONFIG: bincode::config::Configuration = bincode::config::standard()
     .with_little_endian()
@@ -26,7 +28,7 @@ pub(super) trait NetworkMessage: Encode + Decode {}
 #[derive(Encode, Decode, Debug)]
 pub(super) struct ServerToClient {
     pub header: ServerHeader,
-    pub body: Vec<ServerBodyElem>,
+    pub bodies: Vec<ServerBodyElem>,
 }
 
 /// Header for ServerToClient message
@@ -39,7 +41,13 @@ pub(super) struct ServerHeader {
 /// One element (message) for the body of a ServerToClient message
 #[derive(Encode, Decode, Debug, Clone)]
 pub(super) enum ServerBodyElem {
-    Pong(u64), // contains sequence number of ping
+    /// contains sequence number of ping
+    /// TODO: remove
+    Pong(u64),
+    /// simple terrain update
+    /// TODO: separate into baseline and delta
+    /// TODO: use ref instead
+    Terrain(Terrain)
 }
 
 impl NetworkMessage for ServerToClient {}
@@ -48,7 +56,7 @@ impl NetworkMessage for ServerToClient {}
 #[derive(Encode, Decode, Debug)]
 pub(super) struct ClientToServer {
     pub header: ClientHeader,
-    pub body: Vec<ClientBodyElem>,
+    pub bodies: Vec<ClientBodyElem>,
 }
 
 /// Header for ClientToServer message
@@ -64,7 +72,11 @@ pub(super) struct ClientHeader {
 /// One element (message) for the body of a ClientToServer message
 #[derive(Encode, Decode, Debug, Clone)]
 pub(super) enum ClientBodyElem {
+    /// asks server to send a pong as a response
+    /// pong should contain the sequence number of this packet
     Ping,
+    /// sends entire input
+    Input(PlayerInput)
 }
 
 impl NetworkMessage for ClientToServer {}

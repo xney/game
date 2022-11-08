@@ -1,5 +1,5 @@
 use super::*;
-use crate::states;
+use crate::{states, world::Terrain};
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
 use std::{
@@ -138,6 +138,14 @@ impl Plugin for ServerPlugin {
         .add_fixed_timestep_system(
             SERVER_TIMESTEP_LABEL,
             0,
+            enqueue_terrain
+                .run_in_state(states::server::GameState::Running)
+                .after("increase_tick")
+                .label("enqueue_terrain"),
+        )
+        .add_fixed_timestep_system(
+            SERVER_TIMESTEP_LABEL,
+            0,
             send_all_messages
                 .run_in_state(states::server::GameState::Running)
                 .after("handle_messages")
@@ -199,7 +207,7 @@ fn server_handle_messages(mut server: ResMut<Server>) {
 /// Process a client's message and push new bodies to the next packet sent to the client
 /// TODO: will probably need direct World access in the future
 fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
-    info!("server got message from {:?}: {:?}", client, message);
+    info!("server got message from {:?} with {} bodies", client, message.bodies.len());
 
     // this message is in-order
     // TODO: whenever the clients send inputs, ignore any that are out of order
@@ -214,11 +222,16 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
 
     // compute our responses
     let mut body_elems: Vec<ServerBodyElem> = message
-        .body
+        .bodies
         .iter()
         // match client bodies to server bodies
         .map(|elem| match elem {
             ClientBodyElem::Ping => Some(ServerBodyElem::Pong(message.header.current_sequence)),
+            ClientBodyElem::Input(input) => {
+                // TODO: handle player input
+                info!("ignoring player input for now");
+                None
+            }
         })
         // ignore any Nones
         .filter(|response| response.is_some())
@@ -241,6 +254,7 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
     // only keep pongs that are in response to a ping newer than or equals to the client's last_ack
     client.bodies.retain(|elem| match elem {
         ServerBodyElem::Pong(seq) => *seq >= client.last_ack,
+        ServerBodyElem::Terrain(_) => true, // always keep terrains
     });
 }
 
@@ -257,18 +271,35 @@ fn send_all_messages(server: ResMut<Server>) {
             header: ServerHeader {
                 sequence: server.sequence,
             },
-            body: client_info.bodies.clone(),
+            bodies: client_info.bodies.clone(),
         };
 
         // form message via borrow before consuming it
         let success_msg = format!(
-            "server sent message to {:?}: {:?}",
-            client_info.addr, message
+            "server sent message to {:?}",
+            client_info.addr
         );
         match server.send_message(message) {
             Ok(_) => info!("{}", success_msg),
             Err(e) => error!("server unable to send message: {:?}", e),
         }
+    }
+}
+
+/// Add the terrain to the next packet sent
+/// TODO: convert to delta and baseline
+/// TODO: add resource instead of sending static terrain
+fn enqueue_terrain(mut server: ResMut<Server>) {
+    // TODO: remove
+    // only send out once every x frames
+    if server.sequence % NETWORK_TICK_DELAY != 0 {
+        return;
+    }
+
+    if let Some(client) = &mut server.client {
+        let terrain = Terrain::empty();
+        client.bodies.push(ServerBodyElem::Terrain(terrain));
+        info!("enqueued terrain");
     }
 }
 
