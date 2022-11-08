@@ -207,7 +207,20 @@ fn server_handle_messages(mut server: ResMut<Server>) {
 /// Process a client's message and push new bodies to the next packet sent to the client
 /// TODO: will probably need direct World access in the future
 fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
-    info!("server got message from {:?} with {} bodies", client, message.bodies.len());
+    // TODO: just impl Display or Debug instead
+    let mut bodies_str = "".to_string();
+    for body in &message.bodies {
+        bodies_str.push_str(match body {
+            ClientBodyElem::Ping => "ping,",
+            ClientBodyElem::Input(_) => "input,",
+        });
+    }
+    info!(
+        "server got message from client @ {} with {} bodies: {}",
+        client.addr,
+        message.bodies.len(),
+        bodies_str
+    );
 
     // this message is in-order
     // TODO: whenever the clients send inputs, ignore any that are out of order
@@ -227,7 +240,7 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
         // match client bodies to server bodies
         .map(|elem| match elem {
             ClientBodyElem::Ping => Some(ServerBodyElem::Pong(message.header.current_sequence)),
-            ClientBodyElem::Input(input) => {
+            ClientBodyElem::Input(_input) => {
                 // TODO: handle player input
                 info!("ignoring player input for now");
                 None
@@ -275,10 +288,7 @@ fn send_all_messages(server: ResMut<Server>) {
         };
 
         // form message via borrow before consuming it
-        let success_msg = format!(
-            "server sent message to {:?}",
-            client_info.addr
-        );
+        let success_msg = format!("server sent message to {:?}", client_info.addr);
         match server.send_message(message) {
             Ok(_) => info!("{}", success_msg),
             Err(e) => error!("server unable to send message: {:?}", e),

@@ -56,7 +56,7 @@ impl Decode for Player {
 pub struct PlayerInput {
     pub left: bool,
     pub right: bool,
-    pub jump: bool
+    pub jump: bool,
 }
 
 #[derive(Component)]

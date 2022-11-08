@@ -2,7 +2,7 @@ use std::net::{SocketAddr, UdpSocket};
 
 use bincode::{Decode, Encode};
 
-use crate::{world::Terrain, player::PlayerInput};
+use crate::{player::PlayerInput, world::Terrain};
 
 /// This is the bincode config that we should use everywhere
 pub const BINCODE_CONFIG: bincode::config::Configuration = bincode::config::standard()
@@ -47,7 +47,7 @@ pub(super) enum ServerBodyElem {
     /// simple terrain update
     /// TODO: separate into baseline and delta
     /// TODO: use ref instead
-    Terrain(Terrain)
+    Terrain(Terrain),
 }
 
 impl NetworkMessage for ServerToClient {}
@@ -76,7 +76,7 @@ pub(super) enum ClientBodyElem {
     /// pong should contain the sequence number of this packet
     Ping,
     /// sends entire input
-    Input(PlayerInput)
+    Input(PlayerInput),
 }
 
 impl NetworkMessage for ClientToServer {}

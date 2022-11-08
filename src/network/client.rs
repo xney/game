@@ -158,8 +158,17 @@ fn p_queues_ping(mut client: ResMut<Client>, input: Res<Input<KeyCode>>) {
         return;
     }
 
-    // TODO: remove if more than one type of message can be sent
-    if client.bodies.is_empty() {
+    let num_ping_bodies = client
+        .bodies
+        .iter()
+        .filter(|b| match b {
+            ClientBodyElem::Ping => true,
+            ClientBodyElem::Input(_) => false,
+        })
+        .count();
+
+    // only allow one ping per network cycle
+    if num_ping_bodies == 0 {
         info!("client queueing a ping");
         client.enqueue_body(ClientBodyElem::Ping);
     }
@@ -203,7 +212,10 @@ fn client_handle_messages(mut client: ResMut<Client>) {
     loop {
         match client.get_one_message() {
             Ok(message) => {
-                info!("client received message with {} bodies", message.bodies.len());
+                info!(
+                    "client received message with {} bodies",
+                    message.bodies.len()
+                );
                 // only process newer messages, ignore old ones that arrive out of orders
                 if message.header.sequence > client.last_received_sequence {
                     // handle all bodies sent from the server
