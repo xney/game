@@ -1,6 +1,3 @@
-use bevy::prelude::*;
-use std::fs::*;
-use std::io::Write;
 use crate::{
     network::BINCODE_CONFIG,
     procedural_functions::{
@@ -8,6 +5,9 @@ use crate::{
     },
     save, states,
 };
+use bevy::prelude::*;
+use std::fs::*;
+use std::io::Write;
 
 use bincode::{BorrowDecode, Decode, Encode};
 use rand::Rng;
@@ -150,7 +150,7 @@ impl Chunk {
             chunk_number: depth,
             rendered: false,
         };
-        let mut tree= true;
+        let mut tree = true;
         // Loop through chunk, filling in where blocks should be
         for x in 0..CHUNK_WIDTH {
             for y in 0..CHUNK_HEIGHT {
@@ -202,73 +202,70 @@ impl Chunk {
                         entity: None,
                     });
                 } else {
-                    //Checks if you can make trees, if there is room for a tree, and the block it would place a tree is sandstone 
-                    if tree && y>4 && y<CHUNK_HEIGHT-1 && x>4 && c.blocks[y+1][x-2]!=None && c.blocks[y+1][x-2].unwrap().block_type == BlockType::Sandstone
+                    //Checks if you can make trees, if there is room for a tree, and the block it would place a tree is sandstone
+                    if tree
+                        && y > 4
+                        && y < CHUNK_HEIGHT - 1
+                        && x > 4
+                        && c.blocks[y + 1][x - 2] != None
+                        && c.blocks[y + 1][x - 2].unwrap().block_type == BlockType::Sandstone
                     {
                         //sees how tall it can make the tree
                         let mut max = 0;
-                        for height in (0..=y).rev()
-                        {
-                            if c.blocks[height][x-2]!=None
-                            {
-                                max=height;
+                        for height in (0..=y).rev() {
+                            if c.blocks[height][x - 2] != None {
+                                max = height;
                                 break;
                             }
                         }
-                        if y-max>2
-                        {
+                        if y - max > 2 {
                             //Randomizes the height of the tree
-                             let random_height = procedural_functions::generate_random_values(
-                                BASE_SEED+x as u64, //adds x to make it more random if it has the same max and current y position
+                            let random_height = procedural_functions::generate_random_values(
+                                BASE_SEED + x as u64, //adds x to make it more random if it has the same max and current y position
                                 2,
-                                max,y
-                                );
-                                max = *random_height.get(0).unwrap() as usize;
+                                max,
+                                y,
+                            );
+                            max = *random_height.get(0).unwrap() as usize;
                         }
-                        if y-max > 2 && structure_fit(c.blocks,x,max)
-                        {
+                        if y - max > 2 && structure_fit(c.blocks, x, max) {
                             // 02220
                             // 02120
                             // 00100
                             // 00100
                             //Creates the trunk
-                            for height in (max+1..=y).rev()
-                            {
-                              
-                                c.blocks[height][x-2] = Some(Block {
+                            for height in (max + 1..=y).rev() {
+                                c.blocks[height][x - 2] = Some(Block {
                                     block_type: BlockType::Trunk,
                                     entity: None,
                                 });
                             }
                             //Creates the Leaves
-                            c.blocks[max+1][x-1] = Some(Block {
+                            c.blocks[max + 1][x - 1] = Some(Block {
                                 block_type: BlockType::Leaves,
                                 entity: None,
                             });
-                            c.blocks[max+1][x-2] = Some(Block {
+                            c.blocks[max + 1][x - 2] = Some(Block {
                                 block_type: BlockType::Leaves,
                                 entity: None,
                             });
-                            c.blocks[max+1][x-3] = Some(Block {
+                            c.blocks[max + 1][x - 3] = Some(Block {
                                 block_type: BlockType::Leaves,
                                 entity: None,
                             });
-                            c.blocks[max+2][x-1] = Some(Block {
+                            c.blocks[max + 2][x - 1] = Some(Block {
                                 block_type: BlockType::Leaves,
                                 entity: None,
                             });
-                            c.blocks[max+2][x-3] = Some(Block {
+                            c.blocks[max + 2][x - 3] = Some(Block {
                                 block_type: BlockType::Leaves,
                                 entity: None,
                             });
                         // tree=false;
-                        }
-                        else {
+                        } else {
                             c.blocks[y][x] = None;
                         }
-                    }
-                    else
-                    {
+                    } else {
                         c.blocks[y][x] = None;
                     }
                 }
@@ -277,7 +274,7 @@ impl Chunk {
 
         return c;
     }
-   
+
     pub fn new_surface(veins: &Vec<Vein>) -> Self {
         // Create surface chunk with perlin slice functions
 
@@ -356,10 +353,14 @@ impl Chunk {
         return c;
     }
 }
-fn structure_fit(blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT], x: usize , y: usize) ->bool{
-    if x >4 && x< CHUNK_WIDTH
-    {   
-        if blocks[y][x-3] == None && blocks[y][x-1] == None && blocks[y+1][x-1] == None && blocks[y+1][x-3] == None && blocks[y+2][x-1] == None && blocks[y+2][x-3] == None
+fn structure_fit(blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT], x: usize, y: usize) -> bool {
+    if x > 4 && x < CHUNK_WIDTH {
+        if blocks[y][x - 3] == None
+            && blocks[y][x - 1] == None
+            && blocks[y + 1][x - 1] == None
+            && blocks[y + 1][x - 3] == None
+            && blocks[y + 2][x - 1] == None
+            && blocks[y + 2][x - 3] == None
         {
             return true;
         }
@@ -471,7 +472,7 @@ pub enum BlockType {
     Sand,
     PalmTreeBlock,
     Leaves,
-    Trunk
+    Trunk,
 }
 
 impl BlockType {
@@ -484,7 +485,7 @@ impl BlockType {
             BlockType::Sand => "Sand.png",
             BlockType::PalmTreeBlock => "PalmTreeBlock.png",
             BlockType::Leaves => "Leaves.png",
-            BlockType::Trunk => "Trunk.png"
+            BlockType::Trunk => "Trunk.png",
         }
     }
 }
