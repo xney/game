@@ -3,20 +3,21 @@ use crate::{states, world::Terrain};
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
 use std::{
+    collections::HashMap,
     net::{SocketAddr, UdpSocket},
     path::PathBuf,
 };
 
 const NETWORK_TICK_DELAY: u64 = 60;
 const SERVER_TIMESTEP_LABEL: &'static str = "SERVER_TICK";
+const MAX_CLIENTS: usize = 2; // final goal = 2, strech goal = 4
 
 /// Should be used as a global resource on the server
 struct Server {
     /// UDP socket that should be used for everything
     socket: UdpSocket,
-    /// Currently only 1 client supported
-    /// TODO: use a vec or map to support multiple
-    client: Option<ClientInfo>,
+    /// HashMap of clients using the socket address as the key
+    clients: HashMap<SocketAddr, ClientInfo>,
     /// The current sequence/tick number
     sequence: u64,
 }
@@ -56,15 +57,18 @@ impl Server {
 
         Ok(Server {
             socket: sock,
-            client: None,
+            clients: HashMap::with_capacity(MAX_CLIENTS * 2), // avoid resizing (default capacity is 16).,
             sequence: 1u64,
         })
     }
 
-    /// For now, simply sends to the only client if it's connected
-    /// TODO: take in a parameter to distinguish clients
-    fn send_message(&self, message: ServerToClient) -> Result<(), SendError> {
-        match &self.client {
+    /// Send message to a specific client
+    fn send_message(
+        &self,
+        client_addr: SocketAddr,
+        message: ServerToClient,
+    ) -> Result<(), SendError> {
+        match &self.clients.get(&client_addr) {
             Some(client) => {
                 send_message(&self.socket, client.addr, message)?;
                 Ok(())
@@ -92,18 +96,19 @@ impl Server {
         let (message, _size) = bincode::decode_from_slice(&buffer, BINCODE_CONFIG)
             .map_err(|e| ReceiveError::DecodeError(e))?;
 
-        // TODO: change whenever we support more than one client
-        // if the client doesn't match the one we have
-        if match &self.client {
-            Some(client) => client.addr != sender_addr,
-            None => true,
-        } {
-            // (re)set the client to the most recent
-            self.client = Some(ClientInfo::new(sender_addr));
+        // if the server recieves a msg from a new client
+        if !self.clients.contains_key(&sender_addr) {
+            // if at max clients, return error
+            if self.clients.len() == MAX_CLIENTS {
+                return Err(ReceiveError::UnknownSender);
+            }
+            // add the new client
+            self.clients
+                .insert(sender_addr, ClientInfo::new(sender_addr));
         }
 
-        // unwrap OK because we just set self.client or it was already a Some
-        Ok((self.client.as_mut().unwrap(), message))
+        // unwrap OK because we just guaranteed the client is in our HashMap
+        Ok((self.clients.get_mut(&sender_addr).unwrap(), message))
     }
 }
 
@@ -196,6 +201,9 @@ fn server_handle_messages(mut server: ResMut<Server>) {
                 // break whenever we run out of messages
                 break;
             }
+            Err(ReceiveError::UnknownSender) => {
+                warn!("server recieve error: server is full!");
+            }
             Err(e) => {
                 // anything else is a "real" error that we should complain about
                 error!("server receive error: {:?}", e);
@@ -278,8 +286,8 @@ fn send_all_messages(server: ResMut<Server>) {
         return;
     }
 
-    // TODO: loop over clients whenever more than one are supported
-    if let Some(client_info) = &server.client {
+    // loop over clients
+    for (client_addr, client_info) in &server.clients {
         let message = ServerToClient {
             header: ServerHeader {
                 sequence: server.sequence,
@@ -289,7 +297,7 @@ fn send_all_messages(server: ResMut<Server>) {
 
         // form message via borrow before consuming it
         let success_msg = format!("server sent message to {:?}", client_info.addr);
-        match server.send_message(message) {
+        match server.send_message(*client_addr, message) {
             Ok(_) => info!("{}", success_msg),
             Err(e) => error!("server unable to send message: {:?}", e),
         }
@@ -306,7 +314,7 @@ fn enqueue_terrain(mut server: ResMut<Server>) {
         return;
     }
 
-    if let Some(client) = &mut server.client {
+    for (_, client) in &mut server.clients {
         let terrain = Terrain::empty();
         client.bodies.push(ServerBodyElem::Terrain(terrain));
         info!("enqueued terrain");
@@ -318,14 +326,14 @@ fn drop_disconnected_clients(mut server: ResMut<Server>) {
     if server.sequence % NETWORK_TICK_DELAY != 0 {
         return;
     }
-    // TODO: loop over all clients once supported
-    if let Some(client) = &mut server.client {
-        if client.until_drop < NETWORK_TICK_DELAY {
-            // drop the client
-            warn!("dropping client!");
-            server.client = None;
-        } else {
-            client.until_drop -= NETWORK_TICK_DELAY;
-        }
+
+    // drop clients that haven't responded in a while
+    server
+        .clients
+        .retain(|_, v| v.until_drop >= NETWORK_TICK_DELAY);
+
+    // loop through active clients
+    for (_, client_info) in &mut server.clients {
+        client_info.until_drop -= NETWORK_TICK_DELAY;
     }
 }

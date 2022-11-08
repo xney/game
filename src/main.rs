@@ -24,6 +24,7 @@ fn main() {
 
     // common plugins for both client and server
 
+    warn!("game arguments: {:?}", args);
     match args {
         args::GameArgs::Server(s) => {
             // server specific plugins

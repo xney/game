@@ -54,7 +54,8 @@ pub mod client {
     impl Plugin for StatePlugin {
         fn build(&self, app: &mut App) {
             app.add_state::<GameState>(GameState::default())
-                .add_system(input_state_change);
+                .add_system(input_state_change)
+                .add_system(ctrl_q_quit);
         }
     }
 
