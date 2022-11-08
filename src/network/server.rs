@@ -328,9 +328,14 @@ fn drop_disconnected_clients(mut server: ResMut<Server>) {
     }
 
     // drop clients that haven't responded in a while
-    server
-        .clients
-        .retain(|_, v| v.until_drop >= NETWORK_TICK_DELAY);
+    server.clients.retain(|address, client| {
+        let keep = client.until_drop >= NETWORK_TICK_DELAY;
+        if !keep {
+            warn!("dropping client {}", address);
+        }
+
+        keep
+    });
 
     // loop through active clients
     for (_, client_info) in &mut server.clients {
