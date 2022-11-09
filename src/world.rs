@@ -383,17 +383,12 @@ impl Chunk {
                     entity: None,
                 });
             }
-            for y in hill_top..sand_depth {
-                let block_type = BlockType::Sand;
-
-                c.blocks[y][x] = Some(Block {
-                    block_type,
-                    entity: None,
-                });
-            }
-
-            for y in sand_depth..CHUNK_HEIGHT {
-                let mut block_type = BlockType::Limestone;
+            for y in hill_top..CHUNK_HEIGHT {
+                let mut block_type = if y <= sand_depth {
+                    BiomeType::Sand.primary_block()
+                } else {
+                    BiomeType::Sedimentary.primary_block()
+                };
 
                 // Check if this is within the bounds of an ore vein
                 for vein in veins {
@@ -406,7 +401,11 @@ impl Chunk {
                                 "Block at chunk 0 {},{} in vein from {},{} to {},{} ({})",
                                 x, y, vein.start_x, vein.start_y, vein.end_x, vein.end_y, dist
                             );
-                            block_type = BlockType::Coal; // TODO: sand-specific ore
+                            block_type = if y <= sand_depth {
+                                BiomeType::Sand.ore_block()
+                            } else {
+                                BiomeType::Sedimentary.ore_block()
+                            };
                         }
                     }
                 }
