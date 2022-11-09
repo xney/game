@@ -7,7 +7,7 @@ use bevy::prelude::info;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use rand_distr::{Binomial, Distribution};
 
-use crate::world::{BlockType, Cave, Vein, CHUNK_HEIGHT, CHUNK_WIDTH};
+use crate::world::{BiomeType, BlockType, Cave, OreType, Vein, CHUNK_HEIGHT, CHUNK_WIDTH};
 
 const FREQUENCY: f32 = 4.;
 
@@ -34,7 +34,7 @@ pub fn generate_random_values(seed: u64, amount: usize, low: usize, high: usize)
 
 //Generates a random count of veins for a chunk using a normal distribution
 pub fn generate_random_vein_count(seed: u64, chunk_number: u64) -> u64 {
-    let approx_veins_per_chunk = 8.0;
+    let approx_veins_per_chunk = 16.0;
     // Treat it as if every block of a chunk has a % chance of originating an ore vein
     let mut rand = StdRng::seed_from_u64(generate_seed(seed, vec![chunk_number]));
     let bindist = Binomial::new(
@@ -62,7 +62,7 @@ pub fn generate_random_vein(seed: u64, chunk_number: u64, vein_number: u64) -> V
 
     let thickness_sq: f32 = rand.gen_range(1.0..3.0);
 
-    info!(
+    /* info!(
         "Generated vein from {},{} to {},{} in chunk {} with thickness_sq {}",
         start_x,
         (start_y + (chunk_number as usize * CHUNK_HEIGHT)),
@@ -70,10 +70,10 @@ pub fn generate_random_vein(seed: u64, chunk_number: u64, vein_number: u64) -> V
         (end_y + (chunk_number as usize * CHUNK_HEIGHT) as i16),
         chunk_number,
         thickness_sq
-    );
+    ); */
 
     Vein {
-        block_type: BlockType::Coal,
+        ore_type: OreType::Primary,
         chunk_number,
         start_x,
         start_y,
@@ -121,6 +121,62 @@ pub fn dist_to_vein(vein: &Vein, x: f32, y: f32) -> f32 {
     proj = (proj.min(1.0)).max(0.0);
 
     dist_sq(x, y, vx1 + (proj * (vx2 - vx1)), vy1 + (proj * (vy2 - vy1)))
+}
+
+pub fn generate_chunk_biome_change(seed: u64, chunk_number: u64) -> Option<BiomeType> {
+    // 81043 is magic number to make biome-specific rand
+    let mut rand = StdRng::seed_from_u64(generate_seed(seed, vec![chunk_number, 81043]));
+
+    let rnum: f32 = rand.gen();
+
+    // rules depend on depth
+    return if chunk_number == 0 {
+        Some(BiomeType::Sedimentary)
+    } else if chunk_number <= 3 {
+        if rnum < 0.7 {
+            None
+        } else {
+            Some(BiomeType::Basalt)
+        }
+    } else if chunk_number <= 5 {
+        if rnum < 0.8 {
+            Some(BiomeType::Basalt)
+        } else {
+            Some(BiomeType::Felsic)
+        }
+    } else if chunk_number <= 8 {
+        if rnum < 0.7 {
+            Some(BiomeType::Ultramafic)
+        } else if rnum < 0.8 {
+            None
+        } else if rnum < 0.9 {
+            Some(BiomeType::Basalt)
+        } else {
+            Some(BiomeType::Felsic)
+        }
+    } else if chunk_number <= 10 {
+        if rnum < 0.4 {
+            Some(BiomeType::Ultramafic)
+        } else if rnum < 0.6 {
+            None
+        } else if rnum < 0.8 {
+            Some(BiomeType::Mafic)
+        } else if rnum < 0.9 {
+            Some(BiomeType::Basalt)
+        } else {
+            Some(BiomeType::Felsic)
+        }
+    } else {
+        if rnum < 0.7 {
+            Some(BiomeType::Ultramafic)
+        } else if rnum < 0.8 {
+            Some(BiomeType::Mafic)
+        } else if rnum < 0.9 {
+            Some(BiomeType::Felsic)
+        } else {
+            None
+        }
+    };
 }
 
 pub fn generate_random_cave(seed: u64, chunk_number: u64) -> Cave {
