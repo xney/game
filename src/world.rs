@@ -265,14 +265,18 @@ impl Chunk {
                         entity: None,
                     });
                 } else {
+                    let primary_block_type = if y >= biome_change_ypos {
+                        biome_change.primary_block()
+                    } else {
+                        prev_biome.primary_block()
+                    };
                     //Checks if you can make trees, if there is room for a tree, and the block it would place a tree is the current biome primary block
                     if tree
                         && y > 4
                         && y < CHUNK_HEIGHT - 1
                         && x > 4
                         && c.blocks[y + 1][x - 2] != None
-                        && c.blocks[y + 1][x - 2].unwrap().block_type
-                            == biome_change.primary_block()
+                        && c.blocks[y + 1][x - 2].unwrap().block_type == primary_block_type
                     {
                         //sees how tall it can make the tree
                         let mut max = 0;
