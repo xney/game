@@ -91,6 +91,7 @@ pub struct Terrain {
     pub chunks: Vec<Chunk>,
     /// Vector of ore veins - these are generated each time a chunk is generated
     /// Need to be chunk-independent as they can cross chunks
+    /// TODO: Make veins, caves, and biomes regenerated on the fly rather than stored here
     veins: Vec<Vein>,
     caves: Vec<Cave>,
 }
@@ -99,10 +100,10 @@ impl Terrain {
     /// Create a terrain with specified number of chunks
     /// Chunks contain default blocks and are numbered from 0 to len-1
     pub fn new(num_chunks: u64) -> Terrain {
-        // Generate veins for each chunk before generating the chunks so chunks can use them
+        // Generate veins, caves, and biomes for each chunk before generating the chunks so chunks can use them
         let mut veins: Vec<Vein> = Vec::new();
         let mut caves: Vec<Cave> = Vec::new();
-        // Generate veins
+        // Generate veins, caves, and biomes
         for chunk_number in 0..num_chunks {
             for vein_number in 0..generate_random_vein_count(BASE_SEED, chunk_number) {
                 veins.push(Vein::new(chunk_number, vein_number));
@@ -151,10 +152,68 @@ impl Chunk {
             rendered: false,
         };
         let mut tree = true;
+
+        // get prev biome
+        let mut prev_biome_search: Option<BiomeType> = None;
+        let mut curr_search_depth = depth - 1;
+
+        while prev_biome_search.is_none() {
+            prev_biome_search = if depth > 0 {
+                procedural_functions::generate_chunk_biome_change(BASE_SEED, curr_search_depth)
+            } else {
+                Some(BiomeType::Sand)
+            };
+            info! {
+                "Trying to find biome for {} - currently {:?}",
+                curr_search_depth,
+                prev_biome_search
+            }
+            if curr_search_depth == 0 {
+                break; // can't put >= 0 in the while condititon since it's unsigned and that'll always be true
+            }
+            curr_search_depth -= 1;
+        }
+
+        let prev_biome = prev_biome_search.unwrap_or(BiomeType::Sand);
+
+        // Determine biome of chunk and whether there will be a biome change
+        let biome_change = procedural_functions::generate_chunk_biome_change(BASE_SEED, depth)
+            .unwrap_or(prev_biome);
+
+        let average_biome_change_depth = procedural_functions::generate_random_values(
+            procedural_functions::generate_seed(BASE_SEED, vec![depth, 432]),
+            1,
+            3,
+            10,
+        )[0] as usize;
+
+        let biome_change_depths = procedural_functions::generate_random_values(
+            procedural_functions::generate_seed(BASE_SEED, vec![depth, 234]),
+            64, // interpolate between 64 values
+            average_biome_change_depth - 2,
+            average_biome_change_depth + 2, // 5 block range
+        );
+
+        info!(
+            "Chunk {} has biome change from {:?} to {:?} between {} and {}",
+            depth,
+            prev_biome,
+            biome_change,
+            average_biome_change_depth + 2,
+            average_biome_change_depth - 2,
+        );
+
         // Loop through chunk, filling in where blocks should be
         for x in 0..CHUNK_WIDTH {
             for y in 0..CHUNK_HEIGHT {
-                let mut block_type = BlockType::Sandstone;
+                let biome_change_ypos =
+                    procedural_functions::slice_pos_x(x, &biome_change_depths).round() as usize - 1;
+
+                let mut block_type = if y >= biome_change_ypos {
+                    biome_change.primary_block()
+                } else {
+                    prev_biome.primary_block()
+                };
 
                 // Check if this is within the bounds of an ore vein
                 for vein in veins {
@@ -171,7 +230,7 @@ impl Chunk {
                         let dist = dist_to_vein(vein, x as f32, (y + y_offset) as f32);
 
                         if dist < (vein.thickness_sq / 2.).into() {
-                            info!(
+                            /* info!(
                                 "Block at chunk {} {},{} in vein from {},{} to {},{} ({})",
                                 depth,
                                 x,
@@ -181,8 +240,12 @@ impl Chunk {
                                 vein.end_x,
                                 vein.end_y,
                                 dist
-                            );
-                            block_type = vein.block_type;
+                            ); */
+                            block_type = if y >= biome_change_ypos {
+                                biome_change.ore_block()
+                            } else {
+                                prev_biome.ore_block()
+                            };
                         }
                     }
                 }
@@ -202,13 +265,14 @@ impl Chunk {
                         entity: None,
                     });
                 } else {
-                    //Checks if you can make trees, if there is room for a tree, and the block it would place a tree is sandstone
+                    //Checks if you can make trees, if there is room for a tree, and the block it would place a tree is the current biome primary block
                     if tree
                         && y > 4
                         && y < CHUNK_HEIGHT - 1
                         && x > 4
                         && c.blocks[y + 1][x - 2] != None
-                        && c.blocks[y + 1][x - 2].unwrap().block_type == BlockType::Sandstone
+                        && c.blocks[y + 1][x - 2].unwrap().block_type
+                            == biome_change.primary_block()
                     {
                         //sees how tall it can make the tree
                         let mut max = 0;
@@ -291,7 +355,7 @@ impl Chunk {
         );
         let random_sand_depths = procedural_functions::generate_random_values(
             BASE_SEED, //Use hard-coded seed for now
-            32,        //16 random values, so 16 points to interpolate between
+            32,        //32 random values, so 32 points to interpolate between
             16, 31, //Peaks as high as 16 blocks
         );
         let random_trees = procedural_functions::generate_random_values(
@@ -325,7 +389,7 @@ impl Chunk {
             }
 
             for y in sand_depth..CHUNK_HEIGHT {
-                let mut block_type = BlockType::Sandstone;
+                let mut block_type = BlockType::Limestone;
 
                 // Check if this is within the bounds of an ore vein
                 for vein in veins {
@@ -338,7 +402,7 @@ impl Chunk {
                                 "Block at chunk 0 {},{} in vein from {},{} to {},{} ({})",
                                 x, y, vein.start_x, vein.start_y, vein.end_x, vein.end_y, dist
                             );
-                            block_type = vein.block_type;
+                            block_type = BlockType::Coal; // TODO: sand-specific ore
                         }
                     }
                 }
@@ -367,10 +431,16 @@ fn structure_fit(blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT], x: usize,
     }
     return false;
 }
+
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
+pub enum OreType {
+    Primary,
+}
+
 /// Represents an ore vein; stored in the Terrain resource
 #[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Vein {
-    pub block_type: BlockType,
+    pub ore_type: OreType,
     pub chunk_number: u64,
     pub start_x: usize,
     pub start_y: usize,
@@ -396,6 +466,40 @@ pub struct Cave {
 impl Cave {
     pub fn new(chunk_number: u64) -> Self {
         generate_random_cave(BASE_SEED, chunk_number)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum BiomeType {
+    // if adding to this, also update Distribution in procedural_functions
+    Sand,
+    Sedimentary,
+    Basalt,
+    Felsic,
+    Mafic,
+    Ultramafic,
+}
+
+impl BiomeType {
+    pub fn primary_block(&self) -> BlockType {
+        match self {
+            Self::Sand => BlockType::Sand,
+            Self::Sedimentary => BlockType::Limestone,
+            Self::Basalt => BlockType::Basalt,
+            Self::Felsic => BlockType::Granite,
+            Self::Mafic => BlockType::Diabase,
+            Self::Ultramafic => BlockType::Gabbro,
+        }
+    }
+    pub fn ore_block(&self) -> BlockType {
+        match self {
+            Self::Sand => BlockType::Clay,
+            Self::Sedimentary => BlockType::Coal,
+            Self::Basalt => BlockType::Iron,
+            Self::Felsic => BlockType::Quartz,
+            Self::Mafic => BlockType::Labradorite,
+            Self::Ultramafic => BlockType::Peridot,
+        }
     }
 }
 
@@ -466,10 +570,19 @@ pub struct RenderedBlock;
 /// A distinct type of block, with its own texture
 #[derive(Copy, Clone, Debug, Encode, Decode, PartialEq)]
 pub enum BlockType {
-    Sandstone,
+    Sand, // primary blocks
+    Limestone,
+    Basalt,
+    Granite,
+    Diabase,
+    Gabbro,
+    Clay, // "ores"
     Coal,
+    Iron,
+    Quartz,
+    Labradorite,
+    Peridot,
     CaveVoid,
-    Sand,
     PalmTreeBlock,
     Leaves,
     Trunk,
@@ -479,10 +592,19 @@ impl BlockType {
     /// Return the file path for the image that should be displayed for this block
     const fn image_file_path(&self) -> &str {
         match self {
-            BlockType::Sandstone => "Sandstone.png",
-            BlockType::Coal => "Coal.png",
-            BlockType::CaveVoid => "",
             BlockType::Sand => "Sand.png",
+            BlockType::Limestone => "Limestone.png",
+            BlockType::Basalt => "Basalt.png",
+            BlockType::Granite => "Granite.png",
+            BlockType::Diabase => "Diabase.png",
+            BlockType::Gabbro => "Gabbro.png",
+            BlockType::Clay => "Clay.png",
+            BlockType::Coal => "Coal.png",
+            BlockType::Iron => "Iron.png",
+            BlockType::Quartz => "Quartz.png",
+            BlockType::Labradorite => "Labradorite.png",
+            BlockType::Peridot => "Peridot.png",
+            BlockType::CaveVoid => "",
             BlockType::PalmTreeBlock => "PalmTreeBlock.png",
             BlockType::Leaves => "Leaves.png",
             BlockType::Trunk => "Trunk.png",
@@ -622,7 +744,7 @@ pub fn destroy_block(
                 Some(block) => {
                     match block.entity {
                         Some(entity) => {
-                            info!("despawning sprite for block at ({}, {})", x, y);
+                            // info!("despawning sprite for block at ({}, {})", x, y);
                             commands.entity(entity).despawn();
                         }
                         None => {
@@ -645,7 +767,7 @@ pub fn destroy_block(
                     return Ok(clone);
                 }
                 None => {
-                    warn!("no block exists at ({}, {})", x, y);
+                    // warn!("no block exists at ({}, {})", x, y);
                     return Err(DestroyBlockError::BlockDoesntExist);
                 }
             }
@@ -701,7 +823,7 @@ pub fn to_world_point_y(y: usize, chunk_number: u64) -> f32 {
 }
 
 fn print_encoding_sizes() {
-    match bincode::encode_to_vec(Block::new(BlockType::Sandstone), BINCODE_CONFIG) {
+    match bincode::encode_to_vec(Block::new(BlockType::Limestone), BINCODE_CONFIG) {
         Ok(block) => info!("a sandstone block is {} byte(s)", block.len()),
         Err(e) => error!("unable to encode block: {}", e),
     }
@@ -814,7 +936,7 @@ mod tests {
 
     #[test]
     fn encode_decode_block() {
-        let original = Block::new(BlockType::Sandstone);
+        let original = Block::new(BlockType::Limestone);
         let encoded = bincode::encode_to_vec(original, BINCODE_CONFIG).unwrap();
         let decoded: Block = bincode::decode_from_slice(&encoded, BINCODE_CONFIG)
             .unwrap()
@@ -827,7 +949,7 @@ mod tests {
         let original = {
             let mut chunk = Chunk::new(0, &Vec::new(), &Vec::new());
             // change some block
-            chunk.blocks[1][1] = Some(Block::new(BlockType::Sandstone));
+            chunk.blocks[1][1] = Some(Block::new(BlockType::Limestone));
             chunk
         };
         let encoded = bincode::encode_to_vec(&original, BINCODE_CONFIG).unwrap();
@@ -842,7 +964,7 @@ mod tests {
         let original = {
             let mut terrain = Terrain::new(2);
             // change some block
-            terrain.chunks[1].blocks[1][1] = Some(Block::new(BlockType::Sandstone));
+            terrain.chunks[1].blocks[1][1] = Some(Block::new(BlockType::Limestone));
             terrain
         };
         let encoded = bincode::encode_to_vec(&original, BINCODE_CONFIG).unwrap();
@@ -854,7 +976,7 @@ mod tests {
 
     #[test]
     fn size_sanity_check() {
-        let block_size = bincode::encode_to_vec(Block::new(BlockType::Sandstone), BINCODE_CONFIG)
+        let block_size = bincode::encode_to_vec(Block::new(BlockType::Limestone), BINCODE_CONFIG)
             .unwrap()
             .len();
         let chunk_size =
