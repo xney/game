@@ -192,6 +192,8 @@ pub fn generate_random_cave(seed: u64, chunk_number: u64) -> Cave {
 pub fn generate_perlin_noise(chunk_number: u64, seed: u64) -> [[f32; CHUNK_WIDTH]; CHUNK_HEIGHT] {
     let mut noise_map = [[0. as f32; CHUNK_WIDTH]; CHUNK_HEIGHT];
 
+    let p = generate_perlin_hash_table(seed);
+
     for chunk_x in 0..CHUNK_WIDTH {
         for chunk_y in 0..CHUNK_HEIGHT {
             let phys_y = (chunk_number as usize * CHUNK_HEIGHT) + chunk_y;
@@ -199,7 +201,7 @@ pub fn generate_perlin_noise(chunk_number: u64, seed: u64) -> [[f32; CHUNK_WIDTH
             let x = chunk_x as f32 / CHUNK_WIDTH as f32;
             let y = phys_y as f32 / CHUNK_HEIGHT as f32;
 
-            let n = noise((x * FREQUENCY) as f32, (y * FREQUENCY) as f32, seed);
+            let n = noise((x * FREQUENCY) as f32, (y * FREQUENCY) as f32, p);
 
             noise_map[chunk_y][chunk_x] = n;
         }
@@ -208,11 +210,10 @@ pub fn generate_perlin_noise(chunk_number: u64, seed: u64) -> [[f32; CHUNK_WIDTH
     return noise_map;
 }
 
-pub fn noise(x: f32, y: f32, seed: u64) -> f32 {
+pub fn noise(x: f32, y: f32, p: [usize; 512]) -> f32 {
     let xi = x.floor() as usize & 255;
     let yi = y.floor() as usize & 255;
 
-    let p = generate_perlin_hash_table(seed);
 
     let g1 = p[p[xi] + yi];
     let g2 = p[p[xi + 1] + yi];
