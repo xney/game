@@ -15,7 +15,7 @@ const NETWORK_TICK_HZ: u64 = 1;
 pub const NETWORK_TICK_LABEL: &str = "NETWORK_TICK";
 
 /// how many times per second will the game tick occur
-const GAME_TICK_HZ: u64 = 30;
+const GAME_TICK_HZ: u64 = 60;
 
 /// timestep for doing world calculations
 pub const GAME_TICK_LABEL: &str = "GAME_TICK";
