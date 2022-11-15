@@ -15,6 +15,10 @@ pub const BINCODE_CONFIG: bincode::config::Configuration = bincode::config::stan
 pub const DEFAULT_SERVER_PORT: u16 = 8888u16;
 pub const DEFAULT_SERVER_IP: [u8; 4] = [127, 0, 0, 1];
 
+/// incoming buffer size for networking
+/// TODO: reduce whenever delta compression is implemented
+pub(super) const BUFFER_SIZE: usize = 65536;
+
 /// Default size of allocated bodies vec, larger numbers may help reduce reallocation
 pub(super) const DEFAULT_BODIES_VEC_CAPACITY: usize = 10;
 
