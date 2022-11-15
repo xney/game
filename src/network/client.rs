@@ -3,8 +3,11 @@ use std::net::{IpAddr, SocketAddr, UdpSocket};
 use super::*;
 use crate::player;
 use crate::states;
+use crate::world::derender_chunk;
+use crate::world::Terrain;
 use bevy::prelude::*;
 
+/// TODO: move to iyes_loopless
 const NETWORK_TICK_DELAY: u64 = 60;
 
 /// Should be used as a global resource on the client
@@ -22,6 +25,10 @@ struct Client {
     bodies: Vec<ClientBodyElem>,
     /// Debugging pause: drop all packets in and out, stop any processing
     debug_paused: bool,
+    /// TODO: replace this with iyes_loopless fixedtimestep
+    real_tick_count: u64,
+    /// Incoming buffer
+    buffer: [u8; BUFFER_SIZE],
 }
 
 impl Client {
@@ -40,6 +47,8 @@ impl Client {
             current_sequence: 0,
             bodies: Vec::with_capacity(DEFAULT_BODIES_VEC_CAPACITY),
             debug_paused: true, // TODO: remove
+            real_tick_count: 0,
+            buffer: [0u8; BUFFER_SIZE],
         })
     }
 
@@ -51,17 +60,13 @@ impl Client {
 
     /// Non-blocking way to get one message from the socket
     fn get_one_message(&mut self) -> Result<ServerToClient, ReceiveError> {
-        // TODO: move buffer into struct
-        let mut buffer = [0u8; 2048];
-
         // read from socket
-        let (_size, sender_addr) =
-            self.socket
-                .recv_from(&mut buffer)
-                .map_err(|e| match e.kind() {
-                    std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
-                    _ => ReceiveError::IoError(e),
-                })?;
+        let (_size, sender_addr) = self.socket.recv_from(&mut self.buffer).map_err(|e| match e
+            .kind()
+        {
+            std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
+            _ => ReceiveError::IoError(e),
+        })?;
 
         // check if it's actually from the server
         if sender_addr != self.server {
@@ -69,8 +74,8 @@ impl Client {
         }
 
         // decode message
-        let (message, _size) = bincode::decode_from_slice(&buffer, BINCODE_CONFIG)
-            .map_err(|e| ReceiveError::DecodeError(e))?;
+        let (message, _size) = bincode::decode_from_slice(&self.buffer, BINCODE_CONFIG)
+            .map_err(ReceiveError::DecodeError)?;
 
         Ok(message)
     }
@@ -81,11 +86,31 @@ impl Client {
     }
 
     /// Client logic for handling bodies received from the server
-    /// TODO: add actual logic
-    fn handle_body(&mut self, body: ServerBodyElem) {
+    /// TODO: improve performance by avoiding copies
+    fn handle_body(
+        &mut self,
+        body: ServerBodyElem,
+        commands: &mut Commands,
+        terrain: &mut Terrain,
+    ) {
         match body {
             ServerBodyElem::Pong(pong) => info!("got pong for seqnum: {}", pong),
-            ServerBodyElem::Terrain(t) => info!("got terrain, ignoring for now"),
+            ServerBodyElem::Terrain(t) => {
+                // overwrite
+                info!("got terrain, overwriting!");
+
+                // de-render all old chunks
+                for chunk in &mut terrain.chunks {
+                    derender_chunk(commands, chunk);
+                }
+
+                // overwrite the terrain
+                *terrain = t;
+
+                // terrain will be re-rendered as necessary
+
+                info!("done with terrain overwrite");
+            }
         }
     }
 }
@@ -131,6 +156,7 @@ fn increase_tick(mut client: ResMut<Client>) {
     // don't increment when paused
     if !client.debug_paused {
         client.current_sequence += 1;
+        client.real_tick_count += 1;
     }
 }
 
@@ -178,7 +204,7 @@ fn p_queues_ping(mut client: ResMut<Client>, input: Res<Input<KeyCode>>) {
 fn queue_inputs(mut client: ResMut<Client>, bevy_input: Res<Input<KeyCode>>) {
     // TODO: remove
     // only send out once every x frames
-    if client.current_sequence % NETWORK_TICK_DELAY != 0 {
+    if client.real_tick_count % NETWORK_TICK_DELAY != 0 {
         return;
     }
 
@@ -198,14 +224,15 @@ fn queue_inputs(mut client: ResMut<Client>, bevy_input: Res<Input<KeyCode>>) {
 }
 
 /// Get and handle all messages from server
-fn client_handle_messages(mut client: ResMut<Client>) {
+fn client_handle_messages(
+    mut client: ResMut<Client>,
+    mut terrain: ResMut<Terrain>,
+    mut commands: Commands,
+) {
     if client.debug_paused {
         // eat all the messages
         let mut void = [0u8; 0];
-        while match client.socket.recv_from(&mut void) {
-            Ok(_) => true,
-            Err(_) => false,
-        } {}
+        while client.socket.recv_from(&mut void).is_ok() {}
         return;
     }
 
@@ -220,7 +247,7 @@ fn client_handle_messages(mut client: ResMut<Client>) {
                 if message.header.sequence > client.last_received_sequence {
                     // handle all bodies sent from the server
                     for body in message.bodies {
-                        client.handle_body(body);
+                        client.handle_body(body, &mut commands, &mut terrain);
                     }
 
                     // if we are desync'd
@@ -263,7 +290,7 @@ fn send_bodies(mut client: ResMut<Client>) {
 
     // TODO: remove
     // only send out once every x frames
-    if client.current_sequence % NETWORK_TICK_DELAY != 0 {
+    if client.real_tick_count % NETWORK_TICK_DELAY != 0 {
         return;
     }
 

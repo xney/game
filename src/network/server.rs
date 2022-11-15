@@ -8,8 +8,18 @@ use std::{
     path::PathBuf,
 };
 
-const NETWORK_TICK_DELAY: u64 = 60;
-const SERVER_TIMESTEP_LABEL: &'static str = "SERVER_TICK";
+/// how many times per second will the network tick occur
+const NETWORK_TICK_HZ: u64 = 1;
+
+/// timestep for sending out network messages
+pub const NETWORK_TICK_LABEL: &str = "NETWORK_TICK";
+
+/// how many times per second will the game tick occur
+const GAME_TICK_HZ: u64 = 60;
+
+/// timestep for doing world calculations
+pub const GAME_TICK_LABEL: &str = "GAME_TICK";
+
 const MAX_CLIENTS: usize = 2; // final goal = 2, strech goal = 4
 
 /// Should be used as a global resource on the server
@@ -20,6 +30,8 @@ struct Server {
     clients: HashMap<SocketAddr, ClientInfo>,
     /// The current sequence/tick number
     sequence: u64,
+    /// Incoming buffer
+    buffer: [u8; BUFFER_SIZE],
 }
 
 /// Information about a client
@@ -59,6 +71,7 @@ impl Server {
             socket: sock,
             clients: HashMap::with_capacity(MAX_CLIENTS * 2), // avoid resizing (default capacity is 16).,
             sequence: 1u64,
+            buffer: [0u8; BUFFER_SIZE],
         })
     }
 
@@ -80,21 +93,17 @@ impl Server {
     /// Non-blocking way to get one message from the socket
     /// TODO: loop over all clients whenever more than one is supported
     fn get_one_message(&mut self) -> Result<(&mut ClientInfo, ClientToServer), ReceiveError> {
-        // TODO: move buffer into struct
-        let mut buffer = [0u8; 2048];
-
         // read from socket
-        let (_size, sender_addr) =
-            self.socket
-                .recv_from(&mut buffer)
-                .map_err(|e| match e.kind() {
-                    std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
-                    _ => ReceiveError::IoError(e),
-                })?;
+        let (_size, sender_addr) = self.socket.recv_from(&mut self.buffer).map_err(|e| match e
+            .kind()
+        {
+            std::io::ErrorKind::WouldBlock => ReceiveError::NoMessage,
+            _ => ReceiveError::IoError(e),
+        })?;
 
         // decode
-        let (message, _size) = bincode::decode_from_slice(&buffer, BINCODE_CONFIG)
-            .map_err(|e| ReceiveError::DecodeError(e))?;
+        let (message, _size) = bincode::decode_from_slice(&self.buffer, BINCODE_CONFIG)
+            .map_err(ReceiveError::DecodeError)?;
 
         // if the server recieves a msg from a new client
         if !self.clients.contains_key(&sender_addr) {
@@ -120,51 +129,65 @@ pub struct ServerPlugin {
 
 impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
+        // add game tick
         app.add_fixed_timestep(
-            std::time::Duration::from_secs_f64(1. / 60.),
-            SERVER_TIMESTEP_LABEL,
-        )
-        .add_enter_system(states::server::GameState::Running, create_server)
-        .add_fixed_timestep_system(
-            SERVER_TIMESTEP_LABEL,
+            std::time::Duration::from_secs_f64(1. / GAME_TICK_HZ as f64),
+            GAME_TICK_LABEL,
+        );
+
+        // add network tick
+        app.add_fixed_timestep(
+            std::time::Duration::from_secs_f64(1. / NETWORK_TICK_HZ as f64),
+            NETWORK_TICK_LABEL,
+        );
+
+        // enter systems
+        app.add_enter_system(states::server::GameState::Running, create_server);
+
+        // exit systems
+        app.add_exit_system(states::server::GameState::Running, destroy_server);
+
+        // game tick systems
+        app.add_fixed_timestep_system(
+            GAME_TICK_LABEL,
             0,
             increase_tick
                 .run_in_state(states::server::GameState::Running)
                 .label("increase_tick"),
         )
         .add_fixed_timestep_system(
-            SERVER_TIMESTEP_LABEL,
+            GAME_TICK_LABEL,
             0,
             server_handle_messages
                 .run_in_state(states::server::GameState::Running)
                 .after("increase_tick")
                 .label("handle_messages"),
-        )
-        .add_fixed_timestep_system(
-            SERVER_TIMESTEP_LABEL,
+        );
+
+        // network tick systems
+        app.add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
             0,
             enqueue_terrain
                 .run_in_state(states::server::GameState::Running)
-                .after("increase_tick")
                 .label("enqueue_terrain"),
         )
         .add_fixed_timestep_system(
-            SERVER_TIMESTEP_LABEL,
+            NETWORK_TICK_LABEL,
             0,
             send_all_messages
                 .run_in_state(states::server::GameState::Running)
-                .after("handle_messages")
+                .after("enqueue_terrain")
                 .label("send_messages"),
         )
         .add_fixed_timestep_system(
-            SERVER_TIMESTEP_LABEL,
+            NETWORK_TICK_LABEL,
             0,
             drop_disconnected_clients
                 .run_in_state(states::server::GameState::Running)
                 .after("send_messages")
                 .label("drop_disconnected"),
-        )
-        .add_exit_system(states::server::GameState::Running, destroy_server);
+        );
     }
 }
 
@@ -239,6 +262,8 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
 
         // reset its drop timer
         client.until_drop = FRAME_DIFFERENCE_BEFORE_DISCONNECT;
+    } else {
+        // message out of oder
     }
 
     // compute our responses
@@ -246,7 +271,7 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
         .bodies
         .iter()
         // match client bodies to server bodies
-        .map(|elem| match elem {
+        .filter_map(|elem| match elem {
             ClientBodyElem::Ping => Some(ServerBodyElem::Pong(message.header.current_sequence)),
             ClientBodyElem::Input(_input) => {
                 // TODO: handle player input
@@ -254,10 +279,6 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
                 None
             }
         })
-        // ignore any Nones
-        .filter(|response| response.is_some())
-        // we are left with all Somes, so we can unwrap them safely
-        .map(|some| some.unwrap())
         .collect();
 
     // info!(
@@ -279,13 +300,7 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
     });
 }
 
-fn send_all_messages(server: ResMut<Server>) {
-    // TODO: remove
-    // only send out once every x frames
-    if server.sequence % NETWORK_TICK_DELAY != 0 {
-        return;
-    }
-
+fn send_all_messages(mut server: ResMut<Server>) {
     // loop over clients
     for (client_addr, client_info) in &server.clients {
         let message = ServerToClient {
@@ -302,34 +317,30 @@ fn send_all_messages(server: ResMut<Server>) {
             Err(e) => error!("server unable to send message: {:?}", e),
         }
     }
+
+    // filter out client bodies
+    for client_info in server.clients.values_mut() {
+        client_info.bodies.retain(|b| match b {
+            ServerBodyElem::Pong(_) => true, // keep pongs until we know they were received
+            ServerBodyElem::Terrain(_) => false, // never keep old terrains
+        });
+    }
 }
 
 /// Add the terrain to the next packet sent
 /// TODO: convert to delta and baseline
-/// TODO: add resource instead of sending static terrain
-fn enqueue_terrain(mut server: ResMut<Server>) {
-    // TODO: remove
-    // only send out once every x frames
-    if server.sequence % NETWORK_TICK_DELAY != 0 {
-        return;
-    }
-
-    for (_, client) in &mut server.clients {
-        let terrain = Terrain::empty();
-        client.bodies.push(ServerBodyElem::Terrain(terrain));
+/// TODO: use reference for terrain instead of clone?
+fn enqueue_terrain(mut server: ResMut<Server>, terrain: Res<Terrain>) {
+    for client in server.clients.values_mut() {
+        client.bodies.push(ServerBodyElem::Terrain(terrain.clone()));
         info!("enqueued terrain");
     }
 }
 
 fn drop_disconnected_clients(mut server: ResMut<Server>) {
-    // TODO: remove
-    if server.sequence % NETWORK_TICK_DELAY != 0 {
-        return;
-    }
-
     // drop clients that haven't responded in a while
     server.clients.retain(|address, client| {
-        let keep = client.until_drop >= NETWORK_TICK_DELAY;
+        let keep = client.until_drop >= GAME_TICK_HZ;
         if !keep {
             warn!("dropping client {}", address);
         }
@@ -338,7 +349,7 @@ fn drop_disconnected_clients(mut server: ResMut<Server>) {
     });
 
     // loop through active clients
-    for (_, client_info) in &mut server.clients {
-        client_info.until_drop -= NETWORK_TICK_DELAY;
+    for client_info in server.clients.values_mut() {
+        client_info.until_drop -= GAME_TICK_HZ;
     }
 }

@@ -44,29 +44,33 @@ pub mod client {
     }
 }
 
-pub fn create_world(mut commands: Commands, assets: Res<AssetServer>) {
+pub mod server {
+    use crate::network;
+
+    use super::*;
+
+    use iyes_loopless::prelude::*;
+
+    pub struct WorldPlugin;
+
+    impl Plugin for WorldPlugin {
+        fn build(&self, app: &mut App) {
+            app.add_enter_system(states::server::GameState::Running, create_world);
+
+            app.add_exit_system(states::server::GameState::Running, destroy_world);
+        }
+    }
+}
+
+pub fn create_world(mut commands: Commands) {
     info!("creating world");
 
     // create now, insert as resource later
     let mut terrain = Terrain::empty();
 
     // Generate one chunk
-    create_surface_chunk(&mut commands, assets, &mut terrain);
-
-    let locations_to_destroy = [(5, 5), (5, 5), (300, 300), (5, 500), (2, 8)];
-
-    // destroy some blocks
-    for (x, y) in locations_to_destroy {
-        info!("attempting to destroy block at ({}, {})", x, y);
-        let result = destroy_block(x, y, &mut commands, &mut terrain);
-        match result {
-            Ok(b) => info!(
-                "successfully destroyed block at ({}, {}), was type {:?}",
-                x, y, b.block_type
-            ),
-            Err(e) => warn!("unable to destroy block at ({}, {}): {:?}", x, y, e),
-        }
-    }
+    // TODO: move this into terrain creation
+    create_surface_chunk(&mut terrain);
 
     // now add as resource
     commands.insert_resource(terrain);
@@ -155,23 +159,26 @@ impl Chunk {
 
         // get prev biome
         let mut prev_biome_search: Option<BiomeType> = None;
-        let mut curr_search_depth = depth - 1;
 
-        while prev_biome_search.is_none() {
-            prev_biome_search = if depth > 0 {
-                procedural_functions::generate_chunk_biome_change(BASE_SEED, curr_search_depth)
-            } else {
-                Some(BiomeType::Sand)
-            };
-            info! {
-                "Trying to find biome for {} - currently {:?}",
-                curr_search_depth,
-                prev_biome_search
+        if depth > 0 {
+            let mut curr_search_depth = depth - 1;
+
+            while prev_biome_search.is_none() {
+                prev_biome_search = if depth > 0 {
+                    procedural_functions::generate_chunk_biome_change(BASE_SEED, curr_search_depth)
+                } else {
+                    Some(BiomeType::Sand)
+                };
+                info! {
+                    "Trying to find biome for {} - currently {:?}",
+                    curr_search_depth,
+                    prev_biome_search
+                }
+                if curr_search_depth == 0 {
+                    break; // can't put >= 0 in the while condititon since it's unsigned and that'll always be true
+                }
+                curr_search_depth -= 1;
             }
-            if curr_search_depth == 0 {
-                break; // can't put >= 0 in the while condititon since it's unsigned and that'll always be true
-            }
-            curr_search_depth -= 1;
         }
 
         let prev_biome = prev_biome_search.unwrap_or(BiomeType::Sand);
@@ -397,10 +404,10 @@ impl Chunk {
                         let dist = dist_to_vein(vein, x as f32, y as f32);
 
                         if dist < (vein.thickness_sq / 2.).into() {
-                            info!(
-                                "Block at chunk 0 {},{} in vein from {},{} to {},{} ({})",
-                                x, y, vein.start_x, vein.start_y, vein.end_x, vein.end_y, dist
-                            );
+                            // info!(
+                            //     "Block at chunk 0 {},{} in vein from {},{} to {},{} ({})",
+                            //     x, y, vein.start_x, vein.start_y, vein.end_x, vein.end_y, dist
+                            // );
                             block_type = if y <= sand_depth {
                                 BiomeType::Sand.ore_block()
                             } else {
@@ -696,17 +703,12 @@ pub fn derender_chunk(commands: &mut Commands, chunk: &mut Chunk) {
 }
 
 /// Create all blocks in surface chunk as actual entities (and store references to entity in chunk.blocks)
-pub fn create_surface_chunk(
-    commands: &mut Commands,
-    assets: Res<AssetServer>,
-    terrain: &mut Terrain,
-) {
+pub fn create_surface_chunk(terrain: &mut Terrain) {
     generate_chunk_veins(0, terrain);
 
-    let mut chunk = Chunk::new_surface(&(terrain.veins));
+    // chunk will get rendered by client
+    let chunk = Chunk::new_surface(&(terrain.veins));
 
-    //Calls function to loop through and create the entities and render them
-    render_chunk(0, commands, &assets, &mut chunk);
     terrain.chunks.push(chunk);
 }
 

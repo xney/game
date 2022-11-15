@@ -35,7 +35,6 @@ fn main() {
                 .add_plugin(bevy::scene::ScenePlugin);
 
             // TODO:
-            // server world plugin
             // server player plugin
             // server save/load plugin
             app.add_plugin(states::server::StatePlugin);
@@ -45,6 +44,8 @@ fn main() {
                 port: s.port,
                 save_file: s.save_file,
             });
+
+            app.add_plugin(world::server::WorldPlugin);
         }
 
         args::GameArgs::Client(c) => {
