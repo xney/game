@@ -127,6 +127,7 @@ impl Plugin for ClientPlugin {
         )
         .add_system_set(
             SystemSet::on_update(states::client::GameState::InGame)
+                .with_system(client_timeout)
                 .with_system(o_pause_client)
                 .with_system(increase_tick.after(o_pause_client))
                 .with_system(p_queues_ping.after(increase_tick))
@@ -312,3 +313,17 @@ fn send_bodies(mut client: ResMut<Client>) {
 }
 
 // TODO: client-side timeout!
+fn client_timeout(mut client: ResMut<Client>){
+    let timeout = client.current_sequence - client.last_received_sequence >= FRAME_DIFFERENCE_BEFORE_DISCONNECT;
+    if timeout {
+        error!("Client Timeout");
+        on_timeout(client);
+    }
+}
+
+//TODO: clean up after a timeout
+fn on_timeout(mut client: ResMut<Client>){
+    info!("Clearing bodies");
+    client.bodies.clear();
+    //reset server address
+}
