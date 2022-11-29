@@ -313,8 +313,9 @@ fn send_bodies(mut client: ResMut<Client>) {
 }
 
 // TODO: client-side timeout!
-fn client_timeout(mut client: ResMut<Client>){
-    let timeout = client.current_sequence - client.last_received_sequence >= FRAME_DIFFERENCE_BEFORE_DISCONNECT;
+fn client_timeout(mut client: ResMut<Client>) {
+    let timeout = client.current_sequence - client.last_received_sequence
+        >= FRAME_DIFFERENCE_BEFORE_DISCONNECT;
     if timeout {
         error!("Client Timeout");
         on_timeout(client);
@@ -322,7 +323,7 @@ fn client_timeout(mut client: ResMut<Client>){
 }
 
 //TODO: clean up after a timeout
-fn on_timeout(mut client: ResMut<Client>){
+fn on_timeout(mut client: ResMut<Client>) {
     info!("Clearing bodies");
     client.bodies.clear();
     //reset server address

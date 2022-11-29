@@ -21,7 +21,7 @@ const GAME_TICK_HZ: u64 = 60;
 pub const GAME_TICK_LABEL: &str = "GAME_TICK";
 
 // maximum number of clients (final goal = 2, strech goal = 4)
-const MAX_CLIENTS: usize = 2; 
+const MAX_CLIENTS: usize = 2;
 
 /// Should be used as a global resource on the server
 struct Server {
