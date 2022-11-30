@@ -1,5 +1,5 @@
 use super::*;
-use crate::{states, world::Terrain, player::PlayerInput};
+use crate::{player::PlayerInput, states, world::Terrain};
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
 use std::{
@@ -218,7 +218,10 @@ fn increase_tick(mut server: ResMut<Server>) {
 }
 
 /// Server system
-fn server_handle_messages(mut server: ResMut<Server>, mut input_map: ResMut<HashMap<SocketAddr, PlayerInput>>) {
+fn server_handle_messages(
+    mut server: ResMut<Server>,
+    mut input_map: ResMut<HashMap<SocketAddr, PlayerInput>>,
+) {
     loop {
         // handle all messages on our socket
         match server.get_one_message() {
@@ -242,7 +245,11 @@ fn server_handle_messages(mut server: ResMut<Server>, mut input_map: ResMut<Hash
 
 /// Process a client's message and push new bodies to the next packet sent to the client
 /// TODO: will probably need direct World access in the future
-fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer, input_map: &mut HashMap<SocketAddr, PlayerInput>) {
+fn compute_new_bodies(
+    client: &mut ClientInfo,
+    message: ClientToServer,
+    input_map: &mut HashMap<SocketAddr, PlayerInput>,
+) {
     // TODO: just impl Display or Debug instead
     let mut bodies_str = "".to_string();
     for body in &message.bodies {
