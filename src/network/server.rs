@@ -1,5 +1,5 @@
 use super::*;
-use crate::{states, world::Terrain};
+use crate::{states, world::Terrain, player::PlayerInput};
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
 use std::{
@@ -21,7 +21,7 @@ const GAME_TICK_HZ: u64 = 60;
 pub const GAME_TICK_LABEL: &str = "GAME_TICK";
 
 // maximum number of clients (final goal = 2, strech goal = 4)
-const MAX_CLIENTS: usize = 2; 
+const MAX_CLIENTS: usize = 2;
 
 /// Should be used as a global resource on the server
 struct Server {
@@ -201,6 +201,10 @@ fn create_server(mut commands: Commands) {
 
     commands.insert_resource(server);
 
+    let input_map: HashMap<SocketAddr, PlayerInput> = HashMap::new();
+
+    commands.insert_resource(input_map);
+
     info!("server created");
 }
 
@@ -214,12 +218,12 @@ fn increase_tick(mut server: ResMut<Server>) {
 }
 
 /// Server system
-fn server_handle_messages(mut server: ResMut<Server>) {
+fn server_handle_messages(mut server: ResMut<Server>, mut input_map: ResMut<HashMap<SocketAddr, PlayerInput>>) {
     loop {
         // handle all messages on our socket
         match server.get_one_message() {
             Ok((client, message)) => {
-                compute_new_bodies(client, message);
+                compute_new_bodies(client, message, &mut input_map);
             }
             Err(ReceiveError::NoMessage) => {
                 // break whenever we run out of messages
@@ -238,7 +242,7 @@ fn server_handle_messages(mut server: ResMut<Server>) {
 
 /// Process a client's message and push new bodies to the next packet sent to the client
 /// TODO: will probably need direct World access in the future
-fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
+fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer, input_map: &mut HashMap<SocketAddr, PlayerInput>) {
     // TODO: just impl Display or Debug instead
     let mut bodies_str = "".to_string();
     for body in &message.bodies {
@@ -274,9 +278,12 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
         // match client bodies to server bodies
         .filter_map(|elem| match elem {
             ClientBodyElem::Ping => Some(ServerBodyElem::Pong(message.header.current_sequence)),
-            ClientBodyElem::Input(_input) => {
+            ClientBodyElem::Input(input) => {
                 // TODO: handle player input
-                info!("ignoring player input for now");
+                info!("server storing current inputs to input hashmap");
+                //insert the players inputs into a hashmap that is a resource
+                let icopy = input.clone();
+                input_map.insert(client.addr, icopy);
                 None
             }
         })

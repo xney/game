@@ -1,11 +1,12 @@
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 
 use super::*;
-use crate::player;
+use crate::player::{self, Player, CameraBoundsBox};
 use crate::states;
 use crate::world::derender_chunk;
 use crate::world::Terrain;
 use bevy::prelude::*;
+use crate::{WIN_H, WIN_W};
 
 /// TODO: move to iyes_loopless
 const NETWORK_TICK_DELAY: u64 = 60;
@@ -202,7 +203,13 @@ fn p_queues_ping(mut client: ResMut<Client>, input: Res<Input<KeyCode>>) {
 }
 
 /// Scrape client inputs and queue up sending them to server
-fn queue_inputs(mut client: ResMut<Client>, bevy_input: Res<Input<KeyCode>>) {
+fn queue_inputs(
+    mut client: ResMut<Client>,
+    bevy_input: Res<Input<KeyCode>>,
+    mouse: Res<Input<MouseButton>>,
+    mut windows: ResMut<Windows>,
+    mut query: Query<(&mut Transform, &mut CameraBoundsBox, With<Player>)>,
+) {
     // TODO: remove
     // only send out once every x frames
     if client.real_tick_count % NETWORK_TICK_DELAY != 0 {
@@ -213,10 +220,43 @@ fn queue_inputs(mut client: ResMut<Client>, bevy_input: Res<Input<KeyCode>>) {
         return;
     }
 
+    //Code to calculate the block x and y to mine based on the mouse x and y from bevy
+
+    let mut block_x_from_mouse = 0;
+    let mut block_y_from_mouse = 0;
+
+    let window = windows.get_primary_mut();
+
+    if !window.is_none() {
+        let win = window.unwrap();
+        for (transform, camera_box, _player) in query.iter_mut() {
+            let ms = win.cursor_position();
+
+            if !ms.is_none() {
+                let mouse_pos = ms.unwrap();
+
+                //calculate distance of click from camera center
+                let dist_x = mouse_pos.x - (WIN_W / 2.);
+                let dist_y = mouse_pos.y - (WIN_H / 2.);
+
+                //calculate bevy choords of click
+                let game_x = camera_box.center_coord.x + dist_x;
+                let game_y = camera_box.center_coord.y + dist_y;
+
+                //calculate block coords from bevy coords
+                block_x_from_mouse = (game_x / 32.).round() as usize;
+                block_y_from_mouse = (game_y / -32.).round() as usize;
+            }
+        }
+    }
+
     let input = player::PlayerInput {
         left: bevy_input.pressed(KeyCode::A),
         right: bevy_input.pressed(KeyCode::D),
         jump: bevy_input.pressed(KeyCode::Space),
+        mine: mouse.pressed(MouseButton::Left),
+        block_x: block_x_from_mouse,
+        block_y: block_y_from_mouse,
     };
 
     // TODO: add block mining attempts
