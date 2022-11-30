@@ -57,6 +57,9 @@ pub struct PlayerInput {
     pub left: bool,
     pub right: bool,
     pub jump: bool,
+    pub mine: bool, //true means the block at block_x, block_y was clicked on.
+    pub block_x: usize,
+    pub block_y: usize,
 }
 
 #[derive(Component)]
