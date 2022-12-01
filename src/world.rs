@@ -376,11 +376,13 @@ impl Chunk {
             CHUNK_WIDTH / 8,
         );
 
-        let octave2 = procedural_functions::perlin_slice(BASE_SEED+25, 32, CHUNK_WIDTH, 8);
+        let octave2 = procedural_functions::perlin_slice(BASE_SEED + 25, 32, CHUNK_WIDTH, 8);
 
         // Loop through chunk, filling in where blocks should be
         for x in 0..CHUNK_WIDTH {
-            let hill_top = (procedural_functions::slice_pos_x(x, &random_vals).round() as i32 + octave2[x]) as usize - 1;
+            let hill_top = (procedural_functions::slice_pos_x(x, &random_vals).round() as i32
+                + octave2[x]) as usize
+                - 1;
             let sand_depth =
                 procedural_functions::slice_pos_x(x, &random_sand_depths).round() as usize - 1;
 

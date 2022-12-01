@@ -58,10 +58,7 @@ pub mod server {
     impl Plugin for SaveLoadPlugin {
         fn build(&self, app: &mut App) {
             // TODO: LOAD
-            app.add_fixed_timestep(
-                std::time::Duration::from_secs(5),
-                "SAVE_INTERVAL",
-            );
+            app.add_fixed_timestep(std::time::Duration::from_secs(5), "SAVE_INTERVAL");
             app.add_fixed_timestep_system(
                 "SAVE_INTERVAL",
                 0,

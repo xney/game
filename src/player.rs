@@ -90,21 +90,25 @@ struct JumpState {
     state: PlayerJumpState,
 }
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 struct PlayerCollision {
+    any: bool,
     top: Option<f32>,
     right: Option<f32>,
     bottom: Option<f32>,
     left: Option<f32>,
+    inside: bool,
 }
 
 impl Default for PlayerCollision {
     fn default() -> PlayerCollision {
         PlayerCollision {
+            any: false,
             top: None,
             right: None,
             bottom: None,
             left: None,
+            inside: false,
         }
     }
 }
@@ -223,6 +227,9 @@ fn handle_movement(
         let mut x_vel = 0.;
         let mut y_vel = 0.;
 
+        let prev_x = player_transform.translation.x;
+        let prev_y = player_transform.translation.y;
+
         //Player moves left
         if input.pressed(KeyCode::A) {
             x_vel -= PLAYER_SPEED * time.delta_seconds();
@@ -264,27 +271,60 @@ fn handle_movement(
         );
 
         if let Some(ref terrain) = terrain {
-            let player_collision =
+            let mut player_collision =
                 get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
 
-            if player_collision.left.is_some() {
-                player_transform.translation.x = player_collision.left.unwrap();
-            }
-            if player_collision.right.is_some() {
-                player_transform.translation.x = player_collision.right.unwrap();
-            }
-            if player_collision.top.is_some() {
-                player_transform.translation.y = player_collision.top.unwrap();
-            }
-            if player_collision.bottom.is_some() {
-                player_transform.translation.y = player_collision.bottom.unwrap();
+            while player_collision.any {
+                // info!("There's a collision: {:?}", player_collision);
+                // Check for "inside" conditions that can occur and just reset in those scenarios
+                if (player_collision.left.is_some() && player_collision.right.is_some())
+                    || (player_collision.top.is_some() && player_collision.bottom.is_some())
+                    || player_collision.inside
+                {
+                    player_transform.translation.x = prev_x;
+                    player_transform.translation.y = prev_y;
+                    // info!("Inside collision");
+                    player_collision =
+                        get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
+
+                    if !player_collision.any {
+                        break;
+                    }
+                }
+
+                if player_collision.left.is_some() {
+                    player_transform.translation.x = player_collision.left.unwrap();
+                    // info!("Left collision");
+                    player_collision =
+                        get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
+                } else if player_collision.right.is_some() {
+                    player_transform.translation.x = player_collision.right.unwrap();
+                    // info!("Right collision");
+                    player_collision =
+                        get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
+                }
+
+                if !player_collision.any {
+                    break;
+                }
+
+                if player_collision.top.is_some() {
+                    player_transform.translation.y = player_collision.top.unwrap();
+                    // info!("Top collision");
+                    player_collision =
+                        get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
+                } else if player_collision.bottom.is_some() {
+                    player_transform.translation.y = player_collision.bottom.unwrap();
+                    // info!("Bottom collision");
+                    player_collision =
+                        get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
+                }
             }
         }
 
-        //lse{
         //Handles Gravity
         player_transform.translation.y += GRAVITY * time.delta_seconds();
-        //}
+
         if let Some(ref terrain) = terrain {
             let player_collision =
                 get_collisions(&player_transform, terrain, input.pressed(KeyCode::F7));
@@ -328,12 +368,16 @@ fn get_collisions(
                     z: 2.,
                 };
                 let collision = collide(player_transform.translation, sizes, block_pos, sizes);
-                match collision {
-                    Some(Collision::Top) => collisions.bottom = Some(block_pos.y + sizes.y),
-                    Some(Collision::Left) => collisions.right = Some(block_pos.x - sizes.x),
-                    Some(Collision::Bottom) => collisions.top = Some(block_pos.y - sizes.y),
-                    Some(Collision::Right) => collisions.left = Some(block_pos.x + sizes.x),
-                    _ => (),
+                if collision.is_some() {
+                    collisions.any = true;
+                    match collision {
+                        Some(Collision::Top) => collisions.bottom = Some(block_pos.y + sizes.y),
+                        Some(Collision::Left) => collisions.right = Some(block_pos.x - sizes.x),
+                        Some(Collision::Bottom) => collisions.top = Some(block_pos.y - sizes.y),
+                        Some(Collision::Right) => collisions.left = Some(block_pos.x + sizes.x),
+                        Some(Collision::Inside) => collisions.inside = true,
+                        None => (),
+                    }
                 }
                 if debug {
                     info!("Block x: {}, y: {}, chunk: {}, collision: {:?}, playerxy: {:?}, blockxy: {},{}", x_index, chunk_y_index, chunk_number, collision, player_transform.translation, block_pos.x, block_pos.y);
