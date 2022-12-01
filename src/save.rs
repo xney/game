@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bincode::{Decode, Encode};
+use iyes_loopless::prelude::*;
 use std::{
     fs::{create_dir_all, read, File},
     io::Write,
@@ -14,8 +15,8 @@ use crate::{
     CharacterCamera,
 };
 
-pub const DEFAULT_SAVE_DIR: &'static str = "savedata";
-pub const DEFAULT_SAVE_FILE: &'static str = "savegame.sav";
+pub const DEFAULT_SAVE_DIR: &str = "savedata";
+pub const DEFAULT_SAVE_FILE: &str = "savegame.sav";
 
 pub fn default_save_path() -> PathBuf {
     Path::new(".")
@@ -31,9 +32,11 @@ pub mod client {
     impl Plugin for SaveLoadPlugin {
         fn build(&self, app: &mut App) {
             app.add_system_set(
-                SystemSet::on_update(states::client::GameState::InGame)
+                ConditionSet::new()
+                    .run_in_state(states::client::GameState::InGame)
                     .with_system(f5_save_to_file)
-                    .with_system(f6_load_from_file),
+                    .with_system(f6_load_from_file)
+                    .into(),
             );
         }
     }

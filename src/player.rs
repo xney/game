@@ -3,6 +3,7 @@ use bevy::{
     sprite::collide_aabb::{collide, Collision},
     time::Stopwatch,
 };
+use iyes_loopless::prelude::*;
 use std::{cmp, time::Duration};
 
 use crate::network::BINCODE_CONFIG;
@@ -110,16 +111,17 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        //todo add destroy function
         app.add_system_set(
-            SystemSet::on_update(GameState::InGame)
+            ConditionSet::new()
+                .run_in_state(GameState::InGame)
                 .with_system(handle_camera_movement)
                 .with_system(handle_movement)
                 .with_system(handle_mining)
-                .with_system(handle_terrain),
+                .with_system(handle_terrain)
+                .into(),
         )
-        .add_system_set(SystemSet::on_enter(GameState::InGame).with_system(setup))
-        .add_system_set(SystemSet::on_enter(GameState::Credits).with_system(destroy_player));
+        .add_enter_system(GameState::InGame, setup)
+        .add_exit_system(GameState::InGame, destroy_player);
     }
 }
 

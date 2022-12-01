@@ -25,6 +25,18 @@ pub(super) const DEFAULT_BODIES_VEC_CAPACITY: usize = 10;
 /// How many frames does a client have to not respond for before the server assumes it's dead
 pub(super) const FRAME_DIFFERENCE_BEFORE_DISCONNECT: u64 = 60 * 5;
 
+/// how many times per second will the network tick occur
+pub const NETWORK_TICK_HZ: u64 = 1;
+
+/// timestep for sending out network messages
+pub const NETWORK_TICK_LABEL: &str = "NETWORK_TICK";
+
+/// how many times per second will the game tick occur
+pub const GAME_TICK_HZ: u64 = 60;
+
+/// timestep for doing world calculations
+pub const GAME_TICK_LABEL: &str = "GAME_TICK";
+
 /// Marker trait for network structs
 pub(super) trait NetworkMessage: Encode + Decode {}
 

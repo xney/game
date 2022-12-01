@@ -6,6 +6,7 @@ use crate::{
     save, states,
 };
 use bevy::prelude::*;
+use iyes_loopless::prelude::*;
 use std::fs::*;
 use std::io::Write;
 
@@ -29,17 +30,15 @@ pub mod client {
         fn build(&self, app: &mut App) {
             // TODO: get baseline terrain from server, then insert it as a resource
             // then make a system that spawns in the entities from the resource
-            app.add_system_set(
-                SystemSet::on_enter(states::client::GameState::InGame).with_system(create_world),
-            )
-            .add_system_set(
-                SystemSet::on_update(states::client::GameState::InGame)
-                    .with_system(f2_prints_terrain)
-                    .with_system(g_deletes_random_block),
-            )
-            .add_system_set(
-                SystemSet::on_exit(states::client::GameState::InGame).with_system(destroy_world),
-            );
+            app.add_enter_system(states::client::GameState::InGame, create_world)
+                .add_system_set(
+                    ConditionSet::new()
+                        .run_in_state(states::client::GameState::InGame)
+                        .with_system(f2_prints_terrain)
+                        .with_system(g_deletes_random_block)
+                        .into(),
+                )
+                .add_exit_system(states::client::GameState::InGame, destroy_world);
         }
     }
 }

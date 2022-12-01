@@ -6,9 +6,7 @@ use crate::states;
 use crate::world::derender_chunk;
 use crate::world::Terrain;
 use bevy::prelude::*;
-
-/// TODO: move to iyes_loopless
-const NETWORK_TICK_DELAY: u64 = 60;
+use iyes_loopless::prelude::*;
 
 /// Should be used as a global resource on the client
 #[derive(Debug)]
@@ -122,20 +120,62 @@ pub struct ClientPlugin {
 
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system_set(
-            SystemSet::on_enter(states::client::GameState::InGame).with_system(create_client),
+        // enter system
+        app.add_enter_system(states::client::GameState::InGame, create_client);
+
+        // exit system
+        app.add_exit_system(states::client::GameState::InGame, destroy_client);
+
+        // add timestep
+        app.add_fixed_timestep(
+            std::time::Duration::from_secs_f64(1. / NETWORK_TICK_HZ as f64),
+            NETWORK_TICK_LABEL,
+        );
+
+        // input systems (debug)
+        app.add_system(
+            o_pause_client
+                .run_in_state(states::client::GameState::InGame)
+                .label("pause"),
         )
-        .add_system_set(
-            SystemSet::on_update(states::client::GameState::InGame)
-                .with_system(o_pause_client)
-                .with_system(increase_tick.after(o_pause_client))
-                .with_system(p_queues_ping.after(increase_tick))
-                .with_system(queue_inputs.after(increase_tick))
-                .with_system(client_handle_messages.after(p_queues_ping))
-                .with_system(send_bodies.after(client_handle_messages)),
+        .add_system(
+            p_queues_ping
+                .run_in_state(states::client::GameState::InGame)
+                .label("p_queues_ping")
+        );
+
+        // network timestep systems
+        app
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            increase_tick
+                .run_in_state(states::client::GameState::InGame)
+                .label("increase_tick"),
         )
-        .add_system_set(
-            SystemSet::on_exit(states::client::GameState::InGame).with_system(destroy_client),
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            queue_inputs
+                .run_in_state(states::client::GameState::InGame)
+                .label("queue_inputs")
+                .after("increase_tick"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            client_handle_messages
+                .run_in_state(states::client::GameState::InGame)
+                .label("client_handle_messages")
+                .after("increase_tick"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            send_bodies
+                .run_in_state(states::client::GameState::InGame)
+                .label("send_bodies")
+                .after("client_handle_messages"),
         );
     }
 }
@@ -145,6 +185,7 @@ fn create_client(mut commands: Commands) {
         Ok(s) => s,
         Err(e) => panic!("Unable to create client: {}", e),
     };
+    info!("client created");
     commands.insert_resource(client);
 }
 
@@ -164,6 +205,7 @@ fn o_pause_client(mut client: ResMut<Client>, input: Res<Input<KeyCode>>) {
     if !input.just_pressed(KeyCode::O) {
         return;
     }
+    info!("o button pressed");
 
     client.debug_paused = !client.debug_paused;
 
@@ -204,10 +246,6 @@ fn p_queues_ping(mut client: ResMut<Client>, input: Res<Input<KeyCode>>) {
 fn queue_inputs(mut client: ResMut<Client>, bevy_input: Res<Input<KeyCode>>) {
     // TODO: remove
     // only send out once every x frames
-    if client.real_tick_count % NETWORK_TICK_DELAY != 0 {
-        return;
-    }
-
     if client.debug_paused {
         return;
     }
@@ -285,12 +323,6 @@ fn client_handle_messages(
 
 fn send_bodies(mut client: ResMut<Client>) {
     if client.debug_paused {
-        return;
-    }
-
-    // TODO: remove
-    // only send out once every x frames
-    if client.real_tick_count % NETWORK_TICK_DELAY != 0 {
         return;
     }
 
