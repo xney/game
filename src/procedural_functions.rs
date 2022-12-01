@@ -32,6 +32,15 @@ pub fn generate_random_values(seed: u64, amount: usize, low: usize, high: usize)
     values
 }
 
+pub fn perlin_slice(seed: u64, density: usize, width: usize, height: usize) -> Vec<i32> {
+    let r = generate_random_values(seed, density, 0, height);
+    let mut slice = vec![0; width];
+    for x in 0..width {
+        slice[x] = slice_pos_x(x, &r) as i32;
+    }
+    return slice;
+}
+
 //Generates a random count of veins for a chunk using a normal distribution
 pub fn generate_random_vein_count(seed: u64, chunk_number: u64) -> u64 {
     let approx_veins_per_chunk = 16.0;
@@ -213,7 +222,6 @@ pub fn generate_perlin_noise(chunk_number: u64, seed: u64) -> [[f32; CHUNK_WIDTH
 pub fn noise(x: f32, y: f32, p: [usize; 512]) -> f32 {
     let xi = x.floor() as usize & 255;
     let yi = y.floor() as usize & 255;
-
 
     let g1 = p[p[xi] + yi];
     let g2 = p[p[xi + 1] + yi];

@@ -1,10 +1,12 @@
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 
 use super::*;
-use crate::player;
+use crate::player::{self, CameraBoundsBox, Player};
 use crate::states;
+use crate::states::client::GameState;
 use crate::world::derender_chunk;
 use crate::world::Terrain;
+use crate::{WIN_H, WIN_W};
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
 
@@ -141,12 +143,11 @@ impl Plugin for ClientPlugin {
         .add_system(
             p_queues_ping
                 .run_in_state(states::client::GameState::InGame)
-                .label("p_queues_ping")
+                .label("p_queues_ping"),
         );
 
         // network timestep systems
-        app
-        .add_fixed_timestep_system(
+        app.add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
             0,
             increase_tick
@@ -176,6 +177,14 @@ impl Plugin for ClientPlugin {
                 .run_in_state(states::client::GameState::InGame)
                 .label("send_bodies")
                 .after("client_handle_messages"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            client_timeout
+                .run_in_state(states::client::GameState::InGame)
+                .label("client_timeout")
+                .after("send_bodies"),
         );
     }
 }
@@ -190,6 +199,7 @@ fn create_client(mut commands: Commands) {
 }
 
 fn destroy_client(mut commands: Commands) {
+    info!("destroying client");
     commands.remove_resource::<Client>();
 }
 
@@ -243,17 +253,55 @@ fn p_queues_ping(mut client: ResMut<Client>, input: Res<Input<KeyCode>>) {
 }
 
 /// Scrape client inputs and queue up sending them to server
-fn queue_inputs(mut client: ResMut<Client>, bevy_input: Res<Input<KeyCode>>) {
+fn queue_inputs(
+    mut client: ResMut<Client>,
+    bevy_input: Res<Input<KeyCode>>,
+    mouse: Res<Input<MouseButton>>,
+    mut windows: ResMut<Windows>,
+    mut query: Query<(&mut Transform, &mut CameraBoundsBox, With<Player>)>,
+) {
     // TODO: remove
-    // only send out once every x frames
     if client.debug_paused {
         return;
+    }
+
+    //Code to calculate the block x and y to mine based on the mouse x and y from bevy
+
+    let mut block_x_from_mouse = 0;
+    let mut block_y_from_mouse = 0;
+
+    let window = windows.get_primary_mut();
+
+    if !window.is_none() {
+        let win = window.unwrap();
+        for (transform, camera_box, _player) in query.iter_mut() {
+            let ms = win.cursor_position();
+
+            if !ms.is_none() {
+                let mouse_pos = ms.unwrap();
+
+                //calculate distance of click from camera center
+                let dist_x = mouse_pos.x - (WIN_W / 2.);
+                let dist_y = mouse_pos.y - (WIN_H / 2.);
+
+                //calculate bevy choords of click
+                let game_x = camera_box.center_coord.x + dist_x;
+                let game_y = camera_box.center_coord.y + dist_y;
+
+                //calculate block coords from bevy coords
+                block_x_from_mouse = (game_x / 32.).round() as usize;
+                block_y_from_mouse = (game_y / -32.).round() as usize;
+            }
+        }
     }
 
     let input = player::PlayerInput {
         left: bevy_input.pressed(KeyCode::A),
         right: bevy_input.pressed(KeyCode::D),
         jump: bevy_input.pressed(KeyCode::Space),
+        mine: mouse.pressed(MouseButton::Left),
+        block_x: block_x_from_mouse,
+        block_y: block_y_from_mouse,
     };
 
     // TODO: add block mining attempts
@@ -344,3 +392,22 @@ fn send_bodies(mut client: ResMut<Client>) {
 }
 
 // TODO: client-side timeout!
+fn client_timeout(mut client: ResMut<Client>, mut commands: Commands) {
+    if client.debug_paused {
+        return;
+    }
+    let timeout = client.current_sequence - client.last_received_sequence
+        >= FRAME_DIFFERENCE_BEFORE_DISCONNECT;
+    if timeout {
+        error!("Client Timeout");
+        on_timeout(client, commands);
+    }
+}
+
+//TODO: clean up after a timeout
+fn on_timeout(mut client: ResMut<Client>, mut commands: Commands) {
+    info!("Clearing bodies");
+    client.bodies.clear();
+    // go back to menu
+    commands.insert_resource(NextState(GameState::Menu));
+}

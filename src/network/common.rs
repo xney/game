@@ -23,7 +23,7 @@ pub(super) const BUFFER_SIZE: usize = 65536;
 pub(super) const DEFAULT_BODIES_VEC_CAPACITY: usize = 10;
 
 /// How many frames does a client have to not respond for before the server assumes it's dead
-pub(super) const FRAME_DIFFERENCE_BEFORE_DISCONNECT: u64 = 60 * 5;
+pub(super) const FRAME_DIFFERENCE_BEFORE_DISCONNECT: u64 = 5;
 
 /// how many times per second will the network tick occur
 pub const NETWORK_TICK_HZ: u64 = 1;

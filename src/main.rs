@@ -36,7 +36,7 @@ fn main() {
 
             // TODO:
             // server player plugin
-            // server save/load plugin
+
             app.add_plugin(states::server::StatePlugin);
 
             // server network plugin
@@ -46,6 +46,9 @@ fn main() {
             });
 
             app.add_plugin(world::server::WorldPlugin);
+
+            // server save/load plugin
+            app.add_plugin(save::server::SaveLoadPlugin);
         }
 
         args::GameArgs::Client(c) => {

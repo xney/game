@@ -17,11 +17,18 @@ use crate::{
 
 pub const DEFAULT_SAVE_DIR: &str = "savedata";
 pub const DEFAULT_SAVE_FILE: &str = "savegame.sav";
+pub const DEFAULT_SAVE_FILE_SERVER: &str = "server.sav";
 
 pub fn default_save_path() -> PathBuf {
     Path::new(".")
         .join(DEFAULT_SAVE_DIR)
         .join(DEFAULT_SAVE_FILE)
+}
+
+pub fn default_save_path_server() -> PathBuf {
+    Path::new(".")
+        .join(DEFAULT_SAVE_DIR)
+        .join(DEFAULT_SAVE_FILE_SERVER)
 }
 
 pub mod client {
@@ -42,6 +49,30 @@ pub mod client {
     }
 }
 
+pub mod server {
+    use crate::network;
+
+    use super::*;
+
+    use iyes_loopless::prelude::*;
+
+    pub struct SaveLoadPlugin;
+
+    impl Plugin for SaveLoadPlugin {
+        fn build(&self, app: &mut App) {
+            // TODO: LOAD
+            app.add_fixed_timestep(std::time::Duration::from_secs(5), "SAVE_INTERVAL");
+            app.add_fixed_timestep_system(
+                "SAVE_INTERVAL",
+                0,
+                save_server
+                    .run_in_state(states::server::GameState::Running)
+                    .label("save_server"),
+            );
+        }
+    }
+}
+
 /// Struct that get serialized to save the world
 #[derive(Debug, Encode)]
 pub struct SaveFile<'a> {
@@ -56,6 +87,42 @@ pub struct LoadFile {
     player_coords: (u64, u64),
     /// owns a terrain that gets created from the file
     terrain: Terrain,
+}
+
+fn save_server(terrain: Res<Terrain>) {
+    let save_file = SaveFile {
+        player_coords: (0, 0), // dummy value
+        terrain: terrain.as_ref(),
+    };
+    // try to encode, allocating a vec
+    // in a real packet, we should use a pre-allocated array and encode into its slice
+    match bincode::encode_to_vec(save_file, BINCODE_CONFIG) {
+        Ok(encoded_vec) => {
+            // creates the savedata folder if it is missing
+            if let Err(e) = create_dir_all(DEFAULT_SAVE_DIR) {
+                error!("unable to create save dir, {}", e);
+                return;
+            }
+            // else it was successful
+
+            // open file in write-mode
+            match File::create(default_save_path_server()) {
+                Ok(mut file) => {
+                    // write the bytes to file
+                    match file.write_all(&encoded_vec) {
+                        Ok(_) => info!("saved to file!"),
+                        Err(e) => error!("could not write to save file, {}", e),
+                    }
+                }
+                Err(e) => {
+                    error!("could not create save file, {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            error!("unable to encode terrain, {}", e);
+        }
+    }
 }
 
 /// Saves the player and terrain in a file
