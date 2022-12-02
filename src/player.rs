@@ -6,7 +6,7 @@ use bevy::{
 use iyes_loopless::prelude::*;
 use std::{cmp, time::Duration};
 
-use crate::network::BINCODE_CONFIG;
+use crate::network::{BINCODE_CONFIG, server::Server};
 use bincode::{Decode, Encode};
 use std::fs::*;
 use std::io::Write;
@@ -30,6 +30,34 @@ const PLAYER_MINE_RADIUS: f32 = 3.; //number of blocks
 const GRAVITY: f32 = -350.0;
 const CAMERA_BOUNDS_SIZE: [f32; 2] = [1000., 500.];
 const PLAYER_Z: f32 = 2.0;
+
+#[derive(Default, Debug)]
+pub struct PlayerPosition {
+    x: f64,
+    y: f64,
+}
+
+pub fn server_player_movement(
+    mut server: ResMut<Server>,
+    terrain: Res<Terrain>
+) {
+    for (addr, client) in &mut server.clients {
+        let input = &client.inputs;
+        let position = &mut client.position;
+
+        move_player(input, position);
+    }
+}
+
+fn move_player(input: &PlayerInput, position: &mut PlayerPosition) {
+    // TODO: replace with real code
+    if input.left && !input.right {
+        position.x -= 1.0;
+    }
+    if input.right && !input.left {
+        position.x += 1.0;
+    }
+}
 
 #[derive(Component)]
 pub struct Player;

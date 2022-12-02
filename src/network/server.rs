@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    player::PlayerInput,
+    player::{server_player_movement, PlayerInput, PlayerPosition},
     states,
     world::{self, Terrain},
 };
@@ -15,11 +15,11 @@ use std::{
 const MAX_CLIENTS: usize = 2; // final goal = 2, strech goal = 4
 
 /// Should be used as a global resource on the server
-struct Server {
+pub struct Server {
     /// UDP socket that should be used for everything
     socket: UdpSocket,
     /// HashMap of clients using the socket address as the key
-    clients: HashMap<SocketAddr, ClientInfo>,
+    pub clients: HashMap<SocketAddr, ClientInfo>,
     /// The current sequence/tick number
     sequence: u64,
     /// Incoming buffer
@@ -28,7 +28,7 @@ struct Server {
 
 /// Information about a client
 #[derive(Debug)]
-struct ClientInfo {
+pub struct ClientInfo {
     /// The socket address
     addr: SocketAddr,
     /// The last confirmed sequence number
@@ -38,7 +38,9 @@ struct ClientInfo {
     /// How many frames until we drop it
     until_drop: u64,
     /// Player inputs
-    inputs: PlayerInput,
+    pub inputs: PlayerInput,
+    /// Current player position
+    pub position: PlayerPosition,
 }
 
 impl ClientInfo {
@@ -49,6 +51,7 @@ impl ClientInfo {
             bodies: Vec::with_capacity(DEFAULT_BODIES_VEC_CAPACITY),
             until_drop: FRAME_DIFFERENCE_BEFORE_DISCONNECT,
             inputs: PlayerInput::default(),
+            position: PlayerPosition::default(),
         }
     }
 }
@@ -152,7 +155,10 @@ impl Plugin for ServerPlugin {
         .add_fixed_timestep_system(
             GAME_TICK_LABEL,
             0,
-            || {}, // TODO: simulate physics
+            server_player_movement
+                .run_in_state(states::server::GameState::Running)
+                .label("server_player_movement")
+                .after("handle_messages"),
         );
 
         // TODO: add run condition to only run if self.clients.len() > 0
