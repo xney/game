@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use iyes_loopless::prelude::*;
 
 use crate::states;
 
@@ -7,16 +8,9 @@ pub struct CreditImagePlugin;
 
 impl Plugin for CreditImagePlugin {
     fn build(&self, app: &mut App) {
-        app.add_system_set(
-            SystemSet::on_enter(states::client::GameState::Credits).with_system(init_credits),
-        )
-        .add_system_set(
-            SystemSet::on_update(states::client::GameState::Credits)
-                .with_system(timer_change_credit_image),
-        )
-        .add_system_set(
-            SystemSet::on_exit(states::client::GameState::Credits).with_system(destroy_credits),
-        );
+        app.add_enter_system(states::client::GameState::Credits, init_credits)
+            .add_system(timer_change_credit_image.run_in_state(states::client::GameState::Credits))
+            .add_exit_system(states::client::GameState::Credits, destroy_credits);
     }
 }
 

@@ -8,20 +8,7 @@ use std::{
     path::PathBuf,
 };
 
-/// how many times per second will the network tick occur
-const NETWORK_TICK_HZ: u64 = 1;
-
-/// timestep for sending out network messages
-pub const NETWORK_TICK_LABEL: &str = "NETWORK_TICK";
-
-/// how many times per second will the game tick occur
-const GAME_TICK_HZ: u64 = 60;
-
-/// timestep for doing world calculations
-pub const GAME_TICK_LABEL: &str = "GAME_TICK";
-
-// maximum number of clients (final goal = 2, strech goal = 4)
-const MAX_CLIENTS: usize = 2;
+const MAX_CLIENTS: usize = 2; // final goal = 2, strech goal = 4
 
 /// Should be used as a global resource on the server
 struct Server {
@@ -92,7 +79,6 @@ impl Server {
     }
 
     /// Non-blocking way to get one message from the socket
-    /// TODO: loop over all clients whenever more than one is supported
     fn get_one_message(&mut self) -> Result<(&mut ClientInfo, ClientToServer), ReceiveError> {
         // read from socket
         let (_size, sender_addr) = self.socket.recv_from(&mut self.buffer).map_err(|e| match e
@@ -152,26 +138,27 @@ impl Plugin for ServerPlugin {
         app.add_fixed_timestep_system(
             GAME_TICK_LABEL,
             0,
-            increase_tick
-                .run_in_state(states::server::GameState::Running)
-                .label("increase_tick"),
-        )
-        .add_fixed_timestep_system(
-            GAME_TICK_LABEL,
-            0,
             server_handle_messages
                 .run_in_state(states::server::GameState::Running)
-                .after("increase_tick")
                 .label("handle_messages"),
         );
 
+        // TODO: add run condition to only run if self.clients.len() > 0
         // network tick systems
         app.add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
             0,
+            increase_network_tick
+                .run_in_state(states::server::GameState::Running)
+                .label("increase_network_tick"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
             enqueue_terrain
                 .run_in_state(states::server::GameState::Running)
-                .label("enqueue_terrain"),
+                .label("enqueue_terrain")
+                .after("increase_network_tick"),
         )
         .add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
@@ -213,7 +200,7 @@ fn destroy_server(mut commands: Commands) {
 }
 
 /// Server increase tick count
-fn increase_tick(mut server: ResMut<Server>) {
+fn increase_network_tick(mut server: ResMut<Server>) {
     server.sequence += 1;
 }
 
@@ -355,7 +342,7 @@ fn enqueue_terrain(mut server: ResMut<Server>, terrain: Res<Terrain>) {
 fn drop_disconnected_clients(mut server: ResMut<Server>) {
     // drop clients that haven't responded in a while
     server.clients.retain(|address, client| {
-        let keep = client.until_drop >= GAME_TICK_HZ;
+        let keep = client.until_drop > 0;
         if !keep {
             warn!("dropping client {}", address);
         }
@@ -365,6 +352,6 @@ fn drop_disconnected_clients(mut server: ResMut<Server>) {
 
     // loop through active clients
     for client_info in server.clients.values_mut() {
-        client_info.until_drop -= GAME_TICK_HZ;
+        client_info.until_drop -= 1;
     }
 }

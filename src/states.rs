@@ -1,7 +1,7 @@
 use bevy::prelude::*;
+use iyes_loopless::prelude::*;
 
 pub mod server {
-    use iyes_loopless::prelude::*;
 
     use super::*;
     // TODO: figure out if this is necessary
@@ -53,7 +53,7 @@ pub mod client {
 
     impl Plugin for StatePlugin {
         fn build(&self, app: &mut App) {
-            app.add_state::<GameState>(GameState::default())
+            app.add_loopless_state(GameState::default())
                 .add_system(input_state_change)
                 .add_system(ctrl_q_quit);
         }
@@ -61,22 +61,22 @@ pub mod client {
 
     /// Simple system to facilitate changing GameState via F1 key
     /// TODO: This is good enough for debugging, but should be reworked eventually
-    fn input_state_change(mut state: ResMut<State<GameState>>, input: Res<Input<KeyCode>>) {
+    fn input_state_change(
+        mut commands: Commands,
+        state: Res<CurrentState<GameState>>,
+        input: Res<Input<KeyCode>>,
+    ) {
         if input.just_pressed(KeyCode::F1) {
-            let new_state = match *state.current() {
+            let new_state = match state.0 {
                 GameState::Menu => GameState::InGame,
                 GameState::Credits => GameState::Menu,
                 GameState::InGame => GameState::Credits,
             };
             info!(
                 "attempting to change GameState from {:?} to {:?}",
-                *state.current(),
-                new_state
+                state.0, new_state
             );
-            match state.set(new_state) {
-                Ok(_) => info!("successfully changed GameState"),
-                Err(e) => error!("unable to change GameState, {}", e),
-            }
+            commands.insert_resource(NextState(new_state));
         }
     }
 }

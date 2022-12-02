@@ -3,13 +3,12 @@ use std::net::{IpAddr, SocketAddr, UdpSocket};
 use super::*;
 use crate::player::{self, CameraBoundsBox, Player};
 use crate::states;
+use crate::states::client::GameState;
 use crate::world::derender_chunk;
 use crate::world::Terrain;
 use crate::{WIN_H, WIN_W};
 use bevy::prelude::*;
-
-/// TODO: move to iyes_loopless
-const NETWORK_TICK_DELAY: u64 = 60;
+use iyes_loopless::prelude::*;
 
 /// Should be used as a global resource on the client
 #[derive(Debug)]
@@ -123,21 +122,69 @@ pub struct ClientPlugin {
 
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system_set(
-            SystemSet::on_enter(states::client::GameState::InGame).with_system(create_client),
+        // enter system
+        app.add_enter_system(states::client::GameState::InGame, create_client);
+
+        // exit system
+        app.add_exit_system(states::client::GameState::InGame, destroy_client);
+
+        // add timestep
+        app.add_fixed_timestep(
+            std::time::Duration::from_secs_f64(1. / NETWORK_TICK_HZ as f64),
+            NETWORK_TICK_LABEL,
+        );
+
+        // input systems (debug)
+        app.add_system(
+            o_pause_client
+                .run_in_state(states::client::GameState::InGame)
+                .label("pause"),
         )
-        .add_system_set(
-            SystemSet::on_update(states::client::GameState::InGame)
-                .with_system(client_timeout)
-                .with_system(o_pause_client)
-                .with_system(increase_tick.after(o_pause_client))
-                .with_system(p_queues_ping.after(increase_tick))
-                .with_system(queue_inputs.after(increase_tick))
-                .with_system(client_handle_messages.after(p_queues_ping))
-                .with_system(send_bodies.after(client_handle_messages)),
+        .add_system(
+            p_queues_ping
+                .run_in_state(states::client::GameState::InGame)
+                .label("p_queues_ping"),
+        );
+
+        // network timestep systems
+        app.add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            increase_tick
+                .run_in_state(states::client::GameState::InGame)
+                .label("increase_tick"),
         )
-        .add_system_set(
-            SystemSet::on_exit(states::client::GameState::InGame).with_system(destroy_client),
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            queue_inputs
+                .run_in_state(states::client::GameState::InGame)
+                .label("queue_inputs")
+                .after("increase_tick"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            client_handle_messages
+                .run_in_state(states::client::GameState::InGame)
+                .label("client_handle_messages")
+                .after("increase_tick"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            send_bodies
+                .run_in_state(states::client::GameState::InGame)
+                .label("send_bodies")
+                .after("client_handle_messages"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            client_timeout
+                .run_in_state(states::client::GameState::InGame)
+                .label("client_timeout")
+                .after("send_bodies"),
         );
     }
 }
@@ -147,10 +194,12 @@ fn create_client(mut commands: Commands) {
         Ok(s) => s,
         Err(e) => panic!("Unable to create client: {}", e),
     };
+    info!("client created");
     commands.insert_resource(client);
 }
 
 fn destroy_client(mut commands: Commands) {
+    info!("destroying client");
     commands.remove_resource::<Client>();
 }
 
@@ -166,6 +215,7 @@ fn o_pause_client(mut client: ResMut<Client>, input: Res<Input<KeyCode>>) {
     if !input.just_pressed(KeyCode::O) {
         return;
     }
+    info!("o button pressed");
 
     client.debug_paused = !client.debug_paused;
 
@@ -211,11 +261,6 @@ fn queue_inputs(
     mut query: Query<(&mut Transform, &mut CameraBoundsBox, With<Player>)>,
 ) {
     // TODO: remove
-    // only send out once every x frames
-    if client.real_tick_count % NETWORK_TICK_DELAY != 0 {
-        return;
-    }
-
     if client.debug_paused {
         return;
     }
@@ -329,12 +374,6 @@ fn send_bodies(mut client: ResMut<Client>) {
         return;
     }
 
-    // TODO: remove
-    // only send out once every x frames
-    if client.real_tick_count % NETWORK_TICK_DELAY != 0 {
-        return;
-    }
-
     let message = ClientToServer {
         header: ClientHeader {
             current_sequence: client.current_sequence,
@@ -353,18 +392,22 @@ fn send_bodies(mut client: ResMut<Client>) {
 }
 
 // TODO: client-side timeout!
-fn client_timeout(mut client: ResMut<Client>) {
+fn client_timeout(mut client: ResMut<Client>, mut commands: Commands) {
+    if client.debug_paused {
+        return;
+    }
     let timeout = client.current_sequence - client.last_received_sequence
         >= FRAME_DIFFERENCE_BEFORE_DISCONNECT;
     if timeout {
         error!("Client Timeout");
-        on_timeout(client);
+        on_timeout(client, commands);
     }
 }
 
 //TODO: clean up after a timeout
-fn on_timeout(mut client: ResMut<Client>) {
+fn on_timeout(mut client: ResMut<Client>, mut commands: Commands) {
     info!("Clearing bodies");
     client.bodies.clear();
-    //reset server address
+    // go back to menu
+    commands.insert_resource(NextState(GameState::Menu));
 }
