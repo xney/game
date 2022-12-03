@@ -242,8 +242,6 @@ pub fn noise(x: f32, y: f32, p: [usize; 512]) -> f32 {
     let x1_inter = lerp(v, d1, d3);
     let x2_inter = lerp(v, d2, d4);
     let y_inter = lerp(u, x1_inter, x2_inter);
-
-    println!(">> {}",y_inter);
     
     return y_inter;
 }
