@@ -21,7 +21,7 @@ const BASE_SEED: u64 = 82981925813;
 
 /// Increase for smaller caves
 /// Decrease for bigger caves
-const PERLIN_CAVE_THRESHOLD: f32 = 1.75;
+const PERLIN_CAVE_THRESHOLD: f32 = 0.25;
 
 pub mod client {
     use super::*;
