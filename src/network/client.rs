@@ -2,10 +2,10 @@ use std::net::{SocketAddr, UdpSocket};
 
 use super::*;
 use crate::args::ClientArgs;
-use crate::player::{self, CameraBoundsBox, Player};
+use crate::player::client::{spawn_other_player_at, CameraBoundsBox, LocalPlayer, Player};
+use crate::player::{PlayerInput, PlayerPosition};
 use crate::states;
 use crate::states::client::GameState;
-use crate::world::derender_chunk;
 use crate::world::Terrain;
 use crate::{WIN_H, WIN_W};
 use bevy::prelude::*;
@@ -28,8 +28,14 @@ struct Client {
     debug_paused: bool,
     /// TODO: replace this with iyes_loopless fixedtimestep
     real_tick_count: u64,
-    /// Incoming buffer
+    /// Network buffer
     buffer: [u8; BUFFER_SIZE],
+}
+
+/// Global resource to contain messages, simplifies data path
+#[derive(Default)]
+struct Messages {
+    messages: Vec<ServerBodyElem>,
 }
 
 impl Client {
@@ -54,8 +60,8 @@ impl Client {
     }
 
     /// Send a message to the server
-    fn send_message(&self, message: ClientToServer) -> Result<(), SendError> {
-        send_message(&self.socket, self.server, message)?;
+    fn send_message(&mut self, message: ClientToServer) -> Result<(), SendError> {
+        send_message(&self.socket, self.server, message, &mut self.buffer)?;
         Ok(())
     }
 
@@ -85,47 +91,6 @@ impl Client {
     fn enqueue_body(&mut self, body: ClientBodyElem) {
         self.bodies.push(body);
     }
-
-    /// Client logic for handling bodies received from the server
-    /// TODO: improve performance by avoiding copies
-    fn handle_body(
-        &mut self,
-        body: ServerBodyElem,
-        commands: &mut Commands,
-        terrain: &mut Terrain,
-    ) {
-        match body {
-            ServerBodyElem::Pong(pong) => info!("got pong for seqnum: {}", pong),
-            ServerBodyElem::Terrain(t) => {
-                // overwrite
-                info!("got terrain, overwriting!");
-
-                // de-render all old chunks
-                for chunk in &mut terrain.chunks {
-                    derender_chunk(commands, chunk);
-                }
-
-                // overwrite the terrain
-                *terrain = t;
-
-                // terrain will be re-rendered as necessary
-
-                info!("done processing received terrain");
-            }
-            ServerBodyElem::PlayerInfo(info_vec) => {
-                // TODO:
-
-                // delete all old players
-
-                // render all new players
-
-                info!(
-                    "done processing received player info, len: {}",
-                    info_vec.len()
-                );
-            }
-        }
-    }
 }
 
 pub struct ClientPlugin {
@@ -136,6 +101,7 @@ impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
         // add args as a resource
         app.insert_resource(self.args.clone());
+        app.insert_resource(Messages::default());
 
         // enter system
         app.add_enter_system(states::client::GameState::InGame, create_client);
@@ -180,10 +146,18 @@ impl Plugin for ClientPlugin {
         .add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
             0,
-            client_handle_messages
+            fetch_messages
                 .run_in_state(states::client::GameState::InGame)
-                .label("client_handle_messages")
+                .label("fetch_messages")
                 .after("increase_tick"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
+            handle_messages
+                .run_in_state(states::client::GameState::InGame)
+                .label("handle_messages")
+                .after("fetch_messages"),
         )
         .add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
@@ -191,7 +165,7 @@ impl Plugin for ClientPlugin {
             send_bodies
                 .run_in_state(states::client::GameState::InGame)
                 .label("send_bodies")
-                .after("client_handle_messages"),
+                .after("handle_messages"),
         )
         .add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
@@ -276,7 +250,7 @@ fn queue_inputs(
     bevy_input: Res<Input<KeyCode>>,
     mouse: Res<Input<MouseButton>>,
     mut windows: ResMut<Windows>,
-    mut query: Query<(&mut Transform, &mut CameraBoundsBox, With<Player>)>,
+    mut query: Query<(&mut Transform, &mut CameraBoundsBox, With<LocalPlayer>)>,
 ) {
     // TODO: remove
     if client.debug_paused {
@@ -313,7 +287,7 @@ fn queue_inputs(
         }
     }
 
-    let input = player::PlayerInput {
+    let input = PlayerInput {
         left: bevy_input.pressed(KeyCode::A),
         right: bevy_input.pressed(KeyCode::D),
         jump: bevy_input.pressed(KeyCode::Space),
@@ -328,11 +302,7 @@ fn queue_inputs(
 }
 
 /// Get and handle all messages from server
-fn client_handle_messages(
-    mut client: ResMut<Client>,
-    mut terrain: ResMut<Terrain>,
-    mut commands: Commands,
-) {
+fn fetch_messages(mut client: ResMut<Client>, mut messages: ResMut<Messages>) {
     if client.debug_paused {
         // eat all the messages
         let mut void = [0u8; 0];
@@ -351,7 +321,7 @@ fn client_handle_messages(
                 if message.header.sequence > client.last_received_sequence {
                     // handle all bodies sent from the server
                     for body in message.bodies {
-                        client.handle_body(body, &mut commands, &mut terrain);
+                        messages.messages.push(body);
                     }
 
                     // if we are desync'd
@@ -382,6 +352,72 @@ fn client_handle_messages(
             }
             Err(e) => {
                 error!("client receive error: {:?}", e);
+            }
+        }
+    }
+}
+
+/// Client logic for handling bodies received from the server
+/// TODO: improve performance by avoiding copies
+fn handle_messages(
+    mut messages: ResMut<Messages>,
+    mut commands: Commands,
+    mut terrain: ResMut<Terrain>,
+    other_players: Query<Entity, (With<Player>, Without<LocalPlayer>)>,
+    mut local_player: Query<(&mut PlayerPosition, &mut Sprite), With<LocalPlayer>>,
+    assets: Res<AssetServer>,
+) {
+    while let Some(message) = messages.messages.pop() {
+        match message {
+            ServerBodyElem::Pong(pong) => info!("got pong for seqnum: {}", pong),
+            ServerBodyElem::Terrain(t) => {
+                // overwrite
+                info!("got terrain with {} chunks, overwriting!", t.chunks.len());
+
+                // overwrite the terrain
+                *terrain = t;
+
+                info!("done processing received terrain");
+            }
+            ServerBodyElem::PlayerInfo(info_vec) => {
+                // delete all old non-local players
+                for entity in other_players.iter() {
+                    commands.entity(entity).despawn();
+                }
+
+                if info_vec.len() >= 1 {
+                    let info = &info_vec[0];
+                    info!(
+                        "new local player position is: ({}, {})",
+                        info.position.x, info.position.y
+                    );
+                    let (mut local_pos, mut local_sprite) = local_player.single_mut();
+
+                    // update local player game position, will be rendered in another system
+                    *local_pos = info.position.clone();
+
+                    // recolor local player sprite
+                    local_sprite.color = info.addr.color();
+                }
+
+                // render all new non-local players
+                if info_vec.len() > 1 {
+                    for player in &info_vec[1..] {
+                        // spawn new entity with Player and transform at location
+                        spawn_other_player_at(
+                            &mut commands,
+                            assets.as_ref(),
+                            &player.addr,
+                            player.position.x,
+                            player.position.y,
+                        );
+                    }
+                }
+
+                info!(
+                    "done processing received player info, len: {}",
+                    info_vec.len()
+                );
             }
         }
     }

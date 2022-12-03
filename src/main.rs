@@ -72,7 +72,7 @@ fn main() {
                 .add_startup_system(setup_background)
                 // TODO: rework for client
                 .add_plugin(world::client::WorldPlugin)
-                .add_plugin(player::PlayerPlugin);
+                .add_plugin(player::client::PlayerPlugin);
 
             // client network plugin
             app.add_plugin(network::client::ClientPlugin { args });

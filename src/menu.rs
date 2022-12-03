@@ -1,4 +1,4 @@
-use bevy::{app::AppExit, prelude::*};
+use bevy::prelude::*;
 use iyes_loopless::prelude::*;
 
 use crate::states::client::GameState;

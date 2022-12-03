@@ -10,7 +10,7 @@ use std::{
 
 use crate::{
     args::ServerArgs,
-    network::{server::ClientAddress, BINCODE_CONFIG},
+    network::{ClientAddress, BINCODE_CONFIG},
     player::{PlayerInput, PlayerPosition},
     states,
     world::Terrain,
@@ -43,7 +43,10 @@ pub mod server {
             );
 
             // load on start
-            app.add_enter_system(states::server::GameState::Running, load_server);
+            app.add_enter_system(
+                states::server::GameState::Running,
+                load_server.label("load_server").after("create_world"),
+            );
         }
     }
 }
@@ -138,7 +141,8 @@ fn load_server(
                     return;
                 }
             };
-            // clear rendered blocks
+
+            // delete old terrain
             commands.remove_resource::<Terrain>();
 
             // insert new terrain

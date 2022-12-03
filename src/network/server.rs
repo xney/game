@@ -3,10 +3,9 @@ use crate::{
     args::ServerArgs,
     player::{server::server_player_movement, PlayerInput, PlayerPosition},
     states,
-    world::{self, Terrain},
+    world::{self, server::check_generate_new_chunks, Terrain},
 };
 use bevy::prelude::*;
-use bincode::{Decode, Encode};
 use iyes_loopless::prelude::*;
 use std::net::{SocketAddr, UdpSocket};
 
@@ -24,18 +23,6 @@ pub struct Server {
 #[derive(Default)]
 struct Messages {
     messages: Vec<(SocketAddr, ClientToServer)>,
-}
-
-/// A component on _all_ players, connected or not
-#[derive(Component, Debug, Encode, Decode, Clone)]
-pub struct ClientAddress {
-    pub addr: SocketAddr,
-}
-
-impl std::fmt::Display for ClientAddress {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.addr)
-    }
 }
 
 /// Information about a client, stored as a component on players that are connected
@@ -77,12 +64,12 @@ impl Server {
 
     /// Send message to a specific client
     fn send_message(
-        &self,
+        &mut self,
         client_addr: SocketAddr,
         message: ServerToClient,
     ) -> Result<(), SendError> {
         // TODO: check if address is acually a connected client via a query?
-        send_message(&self.socket, client_addr, message)?;
+        send_message(&self.socket, client_addr, message, &mut self.buffer)?;
         Ok(())
     }
 
@@ -153,10 +140,18 @@ impl Plugin for ServerPlugin {
         .add_fixed_timestep_system(
             GAME_TICK_LABEL,
             0,
+            check_generate_new_chunks
+                .run_in_state(states::server::GameState::Running)
+                .label("check_generate_new_chunks")
+                .after("handle_messages"),
+        )
+        .add_fixed_timestep_system(
+            GAME_TICK_LABEL,
+            0,
             server_player_movement
                 .run_in_state(states::server::GameState::Running)
                 .label("server_player_movement")
-                .after("handle_messages"),
+                .after("check_generate_new_chunks"),
         );
 
         // debug print player info
@@ -251,8 +246,13 @@ fn process_player_mining(
 ) {
     for (addr, inputs) in query.iter() {
         if inputs.mine {
-            let res =
-                world::destroy_block(inputs.block_x, inputs.block_y, &mut commands, &mut terrain);
+            // destroy the block
+            let res = world::server::destroy_block(
+                inputs.block_x,
+                inputs.block_y,
+                &mut commands,
+                &mut terrain,
+            );
             match res {
                 Ok(block) => {
                     info!(
@@ -459,7 +459,7 @@ fn process_client_message(
 }
 
 fn send_all_messages(
-    server: Res<Server>,
+    mut server: ResMut<Server>,
     mut query: Query<(&ClientAddress, &mut ConnectedClientInfo)>,
 ) {
     // loop over clients
@@ -505,22 +505,35 @@ fn enqueue_terrain(
 fn enqueue_player_info(
     // With<> for connected players only
     info: Query<(&ClientAddress, &PlayerPosition), With<ConnectedClientInfo>>,
-    mut clients: Query<&mut ConnectedClientInfo>,
+    mut clients: Query<(&ClientAddress, &mut ConnectedClientInfo)>,
 ) {
-    // create body
-    let vec_all: Vec<_> = info
-        .iter()
-        .map(|(addr, pos)| SingleNetPlayerInfo {
-            addr: addr.clone(),
-            position: pos.clone(),
-        })
-        .collect();
+    // for each connected client
+    for (target_client_addr, mut target_client) in clients.iter_mut() {
+        // body for this target client
+        let mut players = Vec::new();
 
-    for mut client in clients.iter_mut() {
-        // enqueue clone of body in each client
-        client
+        // loop over every connected player info
+        for (addr, pos) in info.iter() {
+            let info = SingleNetPlayerInfo {
+                addr: addr.clone(),
+                position: pos.clone(),
+            };
+
+            if addr.addr == target_client_addr.addr {
+                // this is the target player information
+                // put it at index 0
+                players.insert(0, info);
+            } else {
+                // this is some other player
+                // push it toend
+                players.push(info);
+            }
+        }
+
+        // enqueue the body
+        target_client
             .bodies
-            .push(ServerBodyElem::PlayerInfo(vec_all.clone()));
+            .push(ServerBodyElem::PlayerInfo(players));
     }
 }
 
