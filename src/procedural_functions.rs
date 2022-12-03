@@ -239,10 +239,12 @@ pub fn noise(x: f32, y: f32, p: [usize; 512]) -> f32 {
     let u = fade(xf);
     let v = fade(yf);
 
-    let x1_inter = lerp(u, d1, d2);
-    let x2_inter = lerp(u, d3, d4);
-    let y_inter = lerp(v, x1_inter, x2_inter);
+    let x1_inter = lerp(v, d1, d3);
+    let x2_inter = lerp(v, d2, d4);
+    let y_inter = lerp(u, x1_inter, x2_inter);
 
+    println!(">> {}",y_inter);
+    
     return y_inter;
 }
 
@@ -262,7 +264,8 @@ pub fn fade(t: f32) -> f32 {
 
 //Linearly interpolate values a and b
 pub fn lerp(a: f32, b: f32, lambda: f32) -> f32 {
-    return (1. - lambda) * a + lambda * b;
+    return b + a*(lambda-b);
+    //return (1. - lambda) * a + lambda * b;
 }
 
 pub fn generate_perlin_hash_table(seed: u64) -> [usize; 512] {
