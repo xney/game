@@ -1,16 +1,14 @@
 use crate::{
     network::BINCODE_CONFIG,
     procedural_functions::{
-        self, dist_to_vein, generate_random_cave, generate_random_vein, generate_random_vein_count, generate_perlin_noise
+        self, dist_to_vein, generate_perlin_noise, generate_random_cave, generate_random_vein,
+        generate_random_vein_count,
     },
-    save, states,
+    states,
 };
 use bevy::prelude::*;
+use bincode::{Decode, Encode};
 use iyes_loopless::prelude::*;
-use std::fs::*;
-use std::io::Write;
-
-use bincode::{BorrowDecode, Decode, Encode};
 use rand::Rng;
 
 pub const CHUNK_HEIGHT: usize = 64;
@@ -34,21 +32,28 @@ pub mod client {
                 .add_system_set(
                     ConditionSet::new()
                         .run_in_state(states::client::GameState::InGame)
-                        .with_system(f2_prints_terrain)
+                        .with_system(f2_prints_terrain_encoding)
+                        .with_system(f3_prints_terrain_info)
                         .with_system(g_deletes_random_block)
                         .into(),
                 )
                 .add_exit_system(states::client::GameState::InGame, destroy_world);
         }
     }
+
+    fn create_world(mut commands: Commands) {
+        info!("creating terrain on client");
+
+        // create now, insert as resource later
+        let terrain = Terrain::empty();
+
+        // now add as resource
+        commands.insert_resource(terrain);
+    }
 }
 
 pub mod server {
-    use crate::network;
-
     use super::*;
-
-    use iyes_loopless::prelude::*;
 
     pub struct WorldPlugin;
 
@@ -59,20 +64,20 @@ pub mod server {
             app.add_exit_system(states::server::GameState::Running, destroy_world);
         }
     }
-}
 
-pub fn create_world(mut commands: Commands) {
-    info!("creating world");
+    fn create_world(mut commands: Commands) {
+        info!("creating terrain on server");
 
-    // create now, insert as resource later
-    let mut terrain = Terrain::empty();
+        // create now, insert as resource later
+        let mut terrain = Terrain::empty();
 
-    // Generate one chunk
-    // TODO: move this into terrain creation
-    create_surface_chunk(&mut terrain);
+        // Generate one chunk
+        // TODO: move this into terrain creation?
+        create_surface_chunk(&mut terrain);
 
-    // now add as resource
-    commands.insert_resource(terrain);
+        // now add as resource
+        commands.insert_resource(terrain);
+    }
 }
 
 fn destroy_world(mut commands: Commands, query: Query<Entity, With<RenderedBlock>>) {
@@ -111,14 +116,9 @@ impl Terrain {
             }
         }
 
-        let chunks = (0..num_chunks)
-            .map(|d| Chunk::new(d, &veins))
-            .collect();
+        let chunks = (0..num_chunks).map(|d| Chunk::new(d, &veins)).collect();
 
-        Terrain {
-            veins,
-            chunks,
-        }
+        Terrain { veins, chunks }
     }
 
     /// Creates a terrain with no chunks
@@ -149,7 +149,7 @@ impl Chunk {
             chunk_number: depth,
             rendered: false,
         };
-        let mut tree = true;
+        let tree = true;
 
         // get prev biome
         let mut prev_biome_search: Option<BiomeType> = None;
@@ -257,7 +257,6 @@ impl Chunk {
                 if perlin_vals[y][x] > PERLIN_CAVE_THRESHOLD {
                     block_type = BlockType::CaveVoid;
                 }
-
 
                 if block_type != BlockType::CaveVoid {
                     c.blocks[y][x] = Some(Block {
@@ -840,8 +839,23 @@ fn print_encoding_sizes() {
     }
 }
 
+/// Make the F3 key dump client terrain information
+fn f3_prints_terrain_info(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
+    if !input.just_pressed(KeyCode::F3) {
+        return;
+    }
+
+    let mut id_str = String::new();
+
+    for chunk in &terrain.chunks {
+        id_str.push_str(&format!("{}, ", chunk.chunk_number));
+    }
+
+    info!("terrain has {} chunks: {}", terrain.chunks.len(), id_str);
+}
+
 /// Make the F2 key dump the encoded terrain
-fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
+fn f2_prints_terrain_encoding(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
     // return early if F2 was not just pressed
     if !input.just_pressed(KeyCode::F2) {
         return;
@@ -874,9 +888,9 @@ fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
 
 // Load world from vec (assumes terrain is cleared)
 pub fn spawn_sprites_from_terrain(
-    commands: &mut Commands,
+    mut commands: Commands,
     assets: &AssetServer,
-    terrain: &mut Terrain,
+    mut terrain: ResMut<Terrain>,
 ) {
     for chunk in &mut terrain.chunks {
         for x in 0..CHUNK_WIDTH {
@@ -980,10 +994,9 @@ mod tests {
         let block_size = bincode::encode_to_vec(Block::new(BlockType::Limestone), BINCODE_CONFIG)
             .unwrap()
             .len();
-        let chunk_size =
-            bincode::encode_to_vec(Chunk::new(0, &Vec::new(),), BINCODE_CONFIG)
-                .unwrap()
-                .len();
+        let chunk_size = bincode::encode_to_vec(Chunk::new(0, &Vec::new()), BINCODE_CONFIG)
+            .unwrap()
+            .len();
         let terrain_size = bincode::encode_to_vec(Terrain::new(1), BINCODE_CONFIG)
             .unwrap()
             .len();

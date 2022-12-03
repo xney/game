@@ -3,7 +3,6 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use bevy::prelude::info;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use rand_distr::{Binomial, Distribution};
 

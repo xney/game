@@ -13,7 +13,7 @@ opt-level = 1
 opt-level = 3
 
 [dependencies]
-bevy = { version = "0.8.1", features = ["dynamic"] }
+bevy = { version = "0.8.1" }
 bincode = { version = "2.0.0-rc.2" }
 clap = { version = "4.0.18", features = ["derive"] }
 iyes_loopless = "0.8.0"

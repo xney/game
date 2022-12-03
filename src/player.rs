@@ -6,10 +6,7 @@ use bevy::{
 use iyes_loopless::prelude::*;
 use std::{cmp, time::Duration};
 
-use crate::network::{BINCODE_CONFIG, server::Server};
 use bincode::{Decode, Encode};
-use std::fs::*;
-use std::io::Write;
 
 use crate::{
     states::client::GameState,
@@ -31,58 +28,43 @@ const GRAVITY: f32 = -350.0;
 const CAMERA_BOUNDS_SIZE: [f32; 2] = [1000., 500.];
 const PLAYER_Z: f32 = 2.0;
 
-#[derive(Default, Debug)]
+#[derive(Component, Default, Debug, Encode, Decode, Clone)]
 pub struct PlayerPosition {
     x: f64,
     y: f64,
 }
 
-pub fn server_player_movement(
-    mut server: ResMut<Server>,
-    terrain: Res<Terrain>
-) {
-    for (addr, client) in &mut server.clients {
-        let input = &client.inputs;
-        let position = &mut client.position;
+pub mod server {
+    use super::*;
 
-        move_player(input, position);
+    /// System that processes player movements
+    pub fn server_player_movement(
+        mut query: Query<(&mut PlayerPosition, &PlayerInput)>,
+        terrain: Res<Terrain>,
+    ) {
+        for (mut position, input) in query.iter_mut() {
+            move_player(input, &mut position, terrain.as_ref());
+        }
+    }
+
+    fn move_player(input: &PlayerInput, position: &mut PlayerPosition, _terrain: &Terrain) {
+        // TODO: replace with real code
+        if input.left && !input.right {
+            position.x -= 1.0;
+        }
+        if input.right && !input.left {
+            position.x += 1.0;
+        }
     }
 }
 
-fn move_player(input: &PlayerInput, position: &mut PlayerPosition) {
-    // TODO: replace with real code
-    if input.left && !input.right {
-        position.x -= 1.0;
-    }
-    if input.right && !input.left {
-        position.x += 1.0;
-    }
-}
-
+/// Marker struct for the current client's player
 #[derive(Component)]
 pub struct Player;
 
-impl Encode for Player {
-    fn encode<E: bincode::enc::Encoder>(
-        &self,
-        encoder: &mut E,
-    ) -> Result<(), bincode::error::EncodeError> {
-        bincode::Encode::encode(&self, encoder);
-        Ok(())
-    }
-}
-
-impl Decode for Player {
-    fn decode<D: bincode::de::Decoder>(
-        decoder: &mut D,
-    ) -> Result<Self, bincode::error::DecodeError> {
-        Ok(Self {})
-    }
-}
-
 /// Contains all inputs that the client needs to tell the server
 /// TODO: refactor to enum?
-#[derive(Encode, Decode, Clone, Debug, Default)]
+#[derive(Component, Encode, Decode, Clone, Debug, Default)]
 pub struct PlayerInput {
     pub left: bool,
     pub right: bool,
@@ -151,9 +133,10 @@ impl Plugin for PlayerPlugin {
             ConditionSet::new()
                 .run_in_state(GameState::InGame)
                 .with_system(handle_camera_movement)
-                .with_system(handle_movement)
-                .with_system(handle_mining)
-                .with_system(handle_terrain)
+                // TODO: reimplement with server in mind
+                // .with_system(handle_movement)
+                // .with_system(handle_mining)
+                // .with_system(handle_terrain)
                 .into(),
         )
         .add_enter_system(GameState::InGame, setup)
@@ -168,10 +151,10 @@ pub struct CameraBoundsBox {
 
 /// Helper method, used during loading file and during systemset enter
 fn spawn_player(
-    mut commands: &mut Commands,
+    commands: &mut Commands,
     assets: &AssetServer,
     position: (u64, u64),
-    mut camera_transform: &mut Transform,
+    camera_transform: &mut Transform,
 ) {
     // convert from game coordinate to bevy coordinate
     let real_x = position.0 as f32 * 32.;
@@ -629,7 +612,7 @@ fn setup(
 }
 
 /// Helper function, centers the camera in the camera bounds
-fn reset_camera(mut camera_bounds: &CameraBoundsBox, mut camera_transform: &mut Transform) {
+fn reset_camera(camera_bounds: &CameraBoundsBox, mut camera_transform: &mut Transform) {
     camera_transform.translation.x = camera_bounds.center_coord[0];
     camera_transform.translation.y = camera_bounds.center_coord[1];
 }

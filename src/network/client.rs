@@ -1,6 +1,7 @@
-use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::net::{SocketAddr, UdpSocket};
 
 use super::*;
+use crate::args::ClientArgs;
 use crate::player::{self, CameraBoundsBox, Player};
 use crate::states;
 use crate::states::client::GameState;
@@ -32,9 +33,9 @@ struct Client {
 }
 
 impl Client {
-    fn new(server_address: SocketAddr) -> Result<Self, std::io::Error> {
+    fn new(server_address: SocketAddr, local_port: u16) -> Result<Self, std::io::Error> {
         // port 0 means we let the OS decide
-        let addr = SocketAddr::from(([0, 0, 0, 0], 0));
+        let addr = SocketAddr::from(([0, 0, 0, 0], local_port));
         let sock = UdpSocket::bind(addr)?;
 
         // we want nonblocking sockets!
@@ -109,19 +110,33 @@ impl Client {
 
                 // terrain will be re-rendered as necessary
 
-                info!("done with terrain overwrite");
+                info!("done processing received terrain");
+            }
+            ServerBodyElem::PlayerInfo(info_vec) => {
+                // TODO:
+
+                // delete all old players
+
+                // render all new players
+
+                info!(
+                    "done processing received player info, len: {}",
+                    info_vec.len()
+                );
             }
         }
     }
 }
 
 pub struct ClientPlugin {
-    pub server_address: IpAddr,
-    pub server_port: u16,
+    pub args: ClientArgs,
 }
 
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
+        // add args as a resource
+        app.insert_resource(self.args.clone());
+
         // enter system
         app.add_enter_system(states::client::GameState::InGame, create_client);
 
@@ -189,8 +204,11 @@ impl Plugin for ClientPlugin {
     }
 }
 
-fn create_client(mut commands: Commands) {
-    let client = match Client::new(SocketAddr::from((DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT))) {
+fn create_client(mut commands: Commands, args: Res<ClientArgs>) {
+    let client = match Client::new(
+        SocketAddr::from((args.server_ip, args.server_port)),
+        args.client_port,
+    ) {
         Ok(s) => s,
         Err(e) => panic!("Unable to create client: {}", e),
     };
@@ -274,7 +292,7 @@ fn queue_inputs(
 
     if !window.is_none() {
         let win = window.unwrap();
-        for (transform, camera_box, _player) in query.iter_mut() {
+        for (_transform, camera_box, _player) in query.iter_mut() {
             let ms = win.cursor_position();
 
             if !ms.is_none() {
@@ -392,7 +410,7 @@ fn send_bodies(mut client: ResMut<Client>) {
 }
 
 // TODO: client-side timeout!
-fn client_timeout(mut client: ResMut<Client>, mut commands: Commands) {
+fn client_timeout(client: ResMut<Client>, commands: Commands) {
     if client.debug_paused {
         return;
     }

@@ -2,7 +2,12 @@ use std::net::{SocketAddr, UdpSocket};
 
 use bincode::{Decode, Encode};
 
-use crate::{player::PlayerInput, world::Terrain};
+use crate::{
+    player::{PlayerInput, PlayerPosition},
+    world::Terrain,
+};
+
+use super::server::ClientAddress;
 
 /// This is the bincode config that we should use everywhere
 pub const BINCODE_CONFIG: bincode::config::Configuration = bincode::config::standard()
@@ -17,13 +22,13 @@ pub const DEFAULT_SERVER_IP: [u8; 4] = [127, 0, 0, 1];
 
 /// incoming buffer size for networking
 /// TODO: reduce whenever delta compression is implemented
-pub(super) const BUFFER_SIZE: usize = 65536;
+pub const BUFFER_SIZE: usize = 65536;
 
 /// Default size of allocated bodies vec, larger numbers may help reduce reallocation
-pub(super) const DEFAULT_BODIES_VEC_CAPACITY: usize = 10;
+pub const DEFAULT_BODIES_VEC_CAPACITY: usize = 10;
 
 /// How many frames does a client have to not respond for before the server assumes it's dead
-pub(super) const FRAME_DIFFERENCE_BEFORE_DISCONNECT: u64 = 5;
+pub const FRAME_DIFFERENCE_BEFORE_DISCONNECT: u64 = 5;
 
 /// how many times per second will the network tick occur
 pub const NETWORK_TICK_HZ: u64 = 1;
@@ -38,25 +43,25 @@ pub const GAME_TICK_HZ: u64 = 60;
 pub const GAME_TICK_LABEL: &str = "GAME_TICK";
 
 /// Marker trait for network structs
-pub(super) trait NetworkMessage: Encode + Decode {}
+pub trait NetworkMessage: Encode + Decode {}
 
 /// Message from the server to a client
 #[derive(Encode, Decode, Debug)]
-pub(super) struct ServerToClient {
+pub struct ServerToClient {
     pub header: ServerHeader,
     pub bodies: Vec<ServerBodyElem>,
 }
 
 /// Header for ServerToClient message
 #[derive(Encode, Decode, Debug)]
-pub(super) struct ServerHeader {
+pub struct ServerHeader {
     /// Sequence/tick number
     pub sequence: u64,
 }
 
 /// One element (message) for the body of a ServerToClient message
 #[derive(Encode, Decode, Debug, Clone)]
-pub(super) enum ServerBodyElem {
+pub enum ServerBodyElem {
     /// contains sequence number of ping
     /// TODO: remove
     Pong(u64),
@@ -64,20 +69,28 @@ pub(super) enum ServerBodyElem {
     /// TODO: separate into baseline and delta
     /// TODO: use ref instead
     Terrain(Terrain),
+    PlayerInfo(Vec<SingleNetPlayerInfo>),
+}
+
+/// Contains information about a single player
+#[derive(Encode, Decode, Debug, Clone)]
+pub struct SingleNetPlayerInfo {
+    pub addr: ClientAddress,
+    pub position: PlayerPosition, // TODO: put inputs here if we want client-side prediction
 }
 
 impl NetworkMessage for ServerToClient {}
 
 /// Message from a client to the server
 #[derive(Encode, Decode, Debug)]
-pub(super) struct ClientToServer {
+pub struct ClientToServer {
     pub header: ClientHeader,
     pub bodies: Vec<ClientBodyElem>,
 }
 
 /// Header for ClientToServer message
 #[derive(Encode, Decode, Debug)]
-pub(super) struct ClientHeader {
+pub struct ClientHeader {
     /// Client's current sequence/tick number
     /// TODO: is this ever useful?
     pub current_sequence: u64,
@@ -87,7 +100,7 @@ pub(super) struct ClientHeader {
 
 /// One element (message) for the body of a ClientToServer message
 #[derive(Encode, Decode, Debug, Clone)]
-pub(super) enum ClientBodyElem {
+pub enum ClientBodyElem {
     /// asks server to send a pong as a response
     /// pong should contain the sequence number of this packet
     Ping,
@@ -98,14 +111,14 @@ pub(super) enum ClientBodyElem {
 impl NetworkMessage for ClientToServer {}
 
 #[derive(Debug)]
-pub(super) enum SendError {
+pub enum SendError {
     IoError(std::io::Error),
     EncodeError(bincode::error::EncodeError),
-    NoSuchPeer,
+    //NoSuchPeer,
 }
 
 #[derive(Debug)]
-pub(super) enum ReceiveError {
+pub enum ReceiveError {
     IoError(std::io::Error),
     DecodeError(bincode::error::DecodeError),
     UnknownSender,
@@ -113,7 +126,7 @@ pub(super) enum ReceiveError {
 }
 
 /// Helper method for sending a message
-pub(super) fn send_message<M: NetworkMessage>(
+pub fn send_message<M: NetworkMessage>(
     socket: &UdpSocket,
     target: SocketAddr,
     message: M,
