@@ -1,13 +1,21 @@
 use super::*;
 use crate::{
     args::ServerArgs,
-    player::{server::server_player_movement, PlayerInput, PlayerPosition},
+    player::{
+        server::{handle_movement, JumpDuration, JumpState},
+        PlayerInput, PlayerPosition,
+    },
     states,
-    world::{self, server::check_generate_new_chunks, Terrain},
+    world::{self, server::check_generate_new_chunks, Terrain, CHUNK_HEIGHT},
 };
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
-use std::net::{SocketAddr, UdpSocket};
+use std::{
+    collections::VecDeque,
+    net::{SocketAddr, UdpSocket},
+};
+
+pub const MESSAGE_QUEUE_SIZE: usize = 20;
 
 /// Should be used as a global resource on the server
 pub struct Server {
@@ -22,7 +30,7 @@ pub struct Server {
 /// Helper resource to decouple message reception and processing
 #[derive(Default)]
 struct Messages {
-    messages: Vec<(SocketAddr, ClientToServer)>,
+    messages: VecDeque<(SocketAddr, ClientToServer)>,
 }
 
 /// Information about a client, stored as a component on players that are connected
@@ -148,9 +156,9 @@ impl Plugin for ServerPlugin {
         .add_fixed_timestep_system(
             GAME_TICK_LABEL,
             0,
-            server_player_movement
+            handle_movement
                 .run_in_state(states::server::GameState::Running)
-                .label("server_player_movement")
+                .label("handle_movement")
                 .after("check_generate_new_chunks"),
         );
 
@@ -280,7 +288,16 @@ fn retrieve_messages(mut server: ResMut<Server>, mut messages: ResMut<Messages>)
         match server.get_one_message() {
             Ok(m) => {
                 // put into resource
-                messages.messages.push(m);
+
+                info!("message queue size: {}", messages.messages.len());
+                while messages.messages.len() > MESSAGE_QUEUE_SIZE {
+                    messages.messages.pop_front();
+                    warn!(
+                        "trashed message due to overflow! new message queue size: {}",
+                        messages.messages.len()
+                    );
+                }
+                messages.messages.push_back(m);
             }
             Err(ReceiveError::NoMessage) => {
                 // break whenever we run out of messages
@@ -316,7 +333,7 @@ fn handle_messages(
     */
 
     // for each message
-    while let Some((addr, message)) = messages.messages.pop() {
+    while let Some((addr, message)) = messages.messages.pop_front() {
         let mut entity: Option<Entity> = None;
 
         // check if we have a player at this address already
@@ -353,6 +370,12 @@ fn handle_messages(
 
                         // add connected to the entity
                         commands.entity(entity).insert(connected);
+
+                        // add other connected-only components to entity
+                        commands
+                            .entity(entity)
+                            .insert(JumpDuration::default())
+                            .insert(JumpState::default());
                     }
                 };
             }
@@ -361,6 +384,8 @@ fn handle_messages(
                 let client_addr = ClientAddress { addr };
                 let position = PlayerPosition::default();
                 let mut input = PlayerInput::default();
+                let jump_dur = JumpDuration::default();
+                let jump_state = JumpState::default();
                 // TODO: add inventory
                 let mut connected = ConnectedClientInfo::default();
 
@@ -375,7 +400,9 @@ fn handle_messages(
                     .insert(client_addr)
                     .insert(position)
                     .insert(input)
-                    .insert(connected);
+                    .insert(connected)
+                    .insert(jump_dur)
+                    .insert(jump_state);
             }
         }
     }
@@ -474,7 +501,9 @@ fn send_all_messages(
         // form message via borrow before consuming it
         let success_msg = format!("server sent message to {:?}", client_addr);
         match server.send_message(client_addr.addr, message) {
-            Ok(_) => info!("{}", success_msg),
+            Ok(_) => {
+                // info!("{}", success_msg),
+            }
             Err(e) => error!("server unable to send message: {:?}", e),
         }
     }
@@ -493,11 +522,28 @@ fn send_all_messages(
 /// TODO: use reference for terrain instead of clone?
 fn enqueue_terrain(
     terrain: Res<Terrain>,
-    mut clients: Query<(&ClientAddress, &mut ConnectedClientInfo)>,
+    mut clients: Query<(&ClientAddress, &mut ConnectedClientInfo, &PlayerPosition)>,
 ) {
-    for (addr, mut client) in clients.iter_mut() {
-        client.bodies.push(ServerBodyElem::Terrain(terrain.clone()));
-        info!("enqueued terrain to {}", addr);
+    for (addr, mut client, player_position) in clients.iter_mut() {
+        // the number of the chunk that the player is in
+        let player_chunk = -(player_position.y) as usize / CHUNK_HEIGHT as usize;
+        let chunk_range = if player_chunk == 0 {
+            0..=1
+        } else {
+            (player_chunk - 1)..=(player_chunk + 1)
+        };
+
+        // info!("enqueuing partial terrain {:?} to {}", chunk_range, addr);
+
+        // the terrain we will send them
+        let mut partial = Terrain::empty();
+        // clone in only specified chunks
+        for chunk_number in chunk_range {
+            partial.chunks.push(terrain.chunks[chunk_number].clone())
+        }
+
+        // push it
+        client.bodies.push(ServerBodyElem::Terrain(partial));
     }
 }
 
@@ -546,8 +592,12 @@ fn drop_disconnected_clients(
         // if we need to drop them
         if client.until_drop == 0 {
             warn!("dropping client {}", addr);
-            // drop
-            commands.entity(entity).remove::<ConnectedClientInfo>();
+            // remove all connected-only components
+            commands
+                .entity(entity)
+                .remove::<ConnectedClientInfo>()
+                .remove::<JumpState>()
+                .remove::<JumpDuration>();
         } else {
             // in else so we never underflow
             client.until_drop -= 1;

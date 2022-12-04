@@ -139,7 +139,7 @@ pub fn send_message<M: NetworkMessage>(
     // TODO: use a buffer instead of allocating into vector
     let size = bincode::encode_into_slice(message, buffer, BINCODE_CONFIG)
         .map_err(|e| SendError::EncodeError(e))?;
-    info!("message size: {} bytes", size);
+    // info!("message size: {} bytes", size);
     socket
         .send_to(&buffer[0..size], target)
         .map_err(|e| SendError::IoError(e))?;

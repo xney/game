@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{diagnostic, prelude::*};
 
 mod args;
 mod credit_image;
@@ -34,9 +34,6 @@ fn main() {
                 .add_plugin(bevy::asset::AssetPlugin)
                 .add_plugin(bevy::scene::ScenePlugin);
 
-            // TODO:
-            // server player plugin
-
             app.add_plugin(states::server::StatePlugin);
 
             // server network plugin
@@ -70,7 +67,6 @@ fn main() {
                         .insert(CharacterCamera);
                 })
                 .add_startup_system(setup_background)
-                // TODO: rework for client
                 .add_plugin(world::client::WorldPlugin)
                 .add_plugin(player::client::PlayerPlugin);
 

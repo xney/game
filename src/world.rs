@@ -40,17 +40,6 @@ pub mod client {
                         .with_system(f3_prints_terrain_info)
                         .into(),
                 )
-                .add_system(
-                    despawn_all_rendered_blocks
-                        .run_in_state(states::client::GameState::InGame)
-                        .label("despawn_all_rendered_blocks"),
-                )
-                .add_system(
-                    render_terrain
-                        .run_in_state(states::client::GameState::InGame)
-                        .label("render_terrain")
-                        .after("despawn_all_rendered_blocks"),
-                )
                 .add_exit_system(states::client::GameState::InGame, destroy_world);
         }
     }
@@ -64,29 +53,11 @@ pub mod client {
         // now add as resource
         commands.insert_resource(terrain);
     }
-
-    fn despawn_all_rendered_blocks(
-        query: Query<Entity, With<RenderedBlock>>,
-        mut commands: Commands,
-    ) {
-        // delete actual renderedblock entities
-        for e in query.iter() {
-            commands.entity(e).despawn();
-        }
-    }
-
-    fn render_terrain(
-        mut commands: Commands,
-        mut terrain: ResMut<Terrain>,
-        assets: Res<AssetServer>,
-    ) {
-        for chunk in &mut terrain.chunks {
-            render_chunk(&mut commands, &assets, chunk);
-        }
-    }
 }
 
 pub mod server {
+    use crate::network::server::ConnectedClientInfo;
+
     use super::*;
 
     pub struct WorldPlugin;
@@ -102,12 +73,26 @@ pub mod server {
         }
     }
 
-    pub fn check_generate_new_chunks(query: Query<&PlayerPosition>, mut terrain: ResMut<Terrain>) {
+    pub fn check_generate_new_chunks(
+        query: Query<&PlayerPosition, With<ConnectedClientInfo>>,
+        mut terrain: ResMut<Terrain>,
+    ) {
+        // the highest numbered (lowest in the world) chunk in our terrain
+        let highest_numbered_chunk_in_terrain = if terrain.chunks.len() == 0 {
+            0
+        } else {
+            (terrain.chunks.len() - 1) as u64
+        };
+
+        // info!(
+        //     "our highest chunk is chunk {}",
+        //     highest_numbered_chunk_in_terrain
+        // );
+
         for position in query.iter() {
             let player_chunk_number = (-position.y) as u64 / CHUNK_HEIGHT as u64;
 
-            // the highest numbered (lowest in the world) chunk in our terrain
-            let highest_numbered_chunk_in_terrain = (terrain.chunks.len() - 1) as u64;
+            // info!("found player at chunk {}", player_chunk_number);
 
             // check if we need to generate more chunks below, assume we already generated the chunks above
             for offset in 0..GEN_CHUNKS_AHEAD {
@@ -116,7 +101,7 @@ pub mod server {
 
                     // generate the chunk
                     generate_chunk_veins(target_chunk, &mut terrain);
-                    let chunk = Chunk::new(target_chunk, &(terrain.veins));
+                    let chunk = Chunk::new(target_chunk, &terrain.veins);
 
                     // add the chunk to our terrain resource
                     terrain.chunks.push(chunk);
@@ -132,8 +117,14 @@ pub mod server {
         let mut terrain = Terrain::empty();
 
         // Generate one chunk
-        // TODO: move this into terrain creation?
         create_surface_chunk(&mut terrain);
+
+        // generate another chunk (index 1)
+        generate_chunk_veins(1, &mut terrain);
+        let chunk = Chunk::new(1, &terrain.veins);
+
+        // add the chunk to our terrain resource
+        terrain.chunks.push(chunk);
 
         // now add as resource
         commands.insert_resource(terrain);
@@ -266,7 +257,6 @@ impl Terrain {
 pub struct Chunk {
     /// 2D array [x, y]
     pub blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT],
-    pub rendered: bool,
     /// starting row for blocks is chunk_number * CHUNK_HEIGHT
     pub chunk_number: u64,
 }
@@ -277,7 +267,6 @@ impl Chunk {
         let mut c = Chunk {
             blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
             chunk_number: depth,
-            rendered: false,
         };
         let tree = true;
 
@@ -475,7 +464,6 @@ impl Chunk {
     pub fn empty(chunk_number: u64) -> Self {
         Self {
             blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
-            rendered: false,
             chunk_number,
         }
     }
@@ -486,7 +474,6 @@ impl Chunk {
         let mut c = Chunk {
             blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
             chunk_number: 0,
-            rendered: false,
         };
 
         let random_vals = procedural_functions::generate_random_values(
@@ -777,8 +764,7 @@ pub fn spawn_chunk(
 }
 
 pub fn render_chunk(commands: &mut Commands, assets: &Res<AssetServer>, chunk: &mut Chunk) {
-    //spawns each entity and asigns it
-    chunk.rendered = true;
+    //spawns each entity and links it to the block
     for x in 0..CHUNK_WIDTH {
         for y in 0..CHUNK_HEIGHT {
             let block_opt = &mut chunk.blocks[y][x];
@@ -813,7 +799,6 @@ pub fn render_chunk(commands: &mut Commands, assets: &Res<AssetServer>, chunk: &
 
 pub fn derender_chunk(commands: &mut Commands, chunk: &mut Chunk) {
     //Despawns each entity and un asigns them
-    chunk.rendered = false;
     for x in 0..CHUNK_WIDTH {
         for y in 0..CHUNK_HEIGHT {
             let block_opt = &mut chunk.blocks[y][x];
@@ -945,44 +930,6 @@ fn f2_prints_terrain_encoding(input: Res<Input<KeyCode>>, terrain: Res<Terrain>)
         Err(e) => {
             // unable to encode
             error!("unable to encode terrain, {}", e);
-        }
-    }
-}
-
-// Load world from vec (assumes terrain is cleared)
-pub fn spawn_sprites_from_terrain(
-    mut commands: Commands,
-    assets: &AssetServer,
-    mut terrain: ResMut<Terrain>,
-) {
-    for chunk in &mut terrain.chunks {
-        for x in 0..CHUNK_WIDTH {
-            for y in 0..CHUNK_HEIGHT {
-                let block_opt = &mut chunk.blocks[y][x];
-                // if there is a block at this location
-                if let Some(block) = block_opt {
-                    // spawn in the sprite for the block
-                    let entity = commands
-                        .spawn()
-                        .insert_bundle(SpriteBundle {
-                            texture: assets.load(block.block_type.image_file_path()),
-                            transform: Transform {
-                                translation: Vec3::from_array([
-                                    to_world_point_x(x),
-                                    to_world_point_y(y, chunk.chunk_number),
-                                    1.,
-                                ]),
-                                ..default()
-                            },
-                            ..default()
-                        })
-                        .insert(RenderedBlock)
-                        .id();
-
-                    // link the entity to the block
-                    block.entity = Option::Some(entity);
-                }
-            }
         }
     }
 }

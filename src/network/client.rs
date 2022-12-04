@@ -1,15 +1,18 @@
+use std::collections::VecDeque;
 use std::net::{SocketAddr, UdpSocket};
 
 use super::*;
 use crate::args::ClientArgs;
 use crate::player::client::{spawn_other_player_at, CameraBoundsBox, LocalPlayer, Player};
-use crate::player::{PlayerInput, PlayerPosition};
+use crate::player::{PlayerInput, PlayerPosition, CAMERA_BOUNDS_SIZE, PLAYER_AND_BLOCK_SIZE};
 use crate::states;
 use crate::states::client::GameState;
-use crate::world::Terrain;
+use crate::world::{derender_chunk, render_chunk, RenderedBlock, Terrain};
 use crate::{WIN_H, WIN_W};
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
+
+pub const MESSAGE_QUEUE_SIZE: usize = 10;
 
 /// Should be used as a global resource on the client
 #[derive(Debug)]
@@ -35,7 +38,7 @@ struct Client {
 /// Global resource to contain messages, simplifies data path
 #[derive(Default)]
 struct Messages {
-    messages: Vec<ServerBodyElem>,
+    messages: VecDeque<ServerBodyElem>,
 }
 
 impl Client {
@@ -127,6 +130,13 @@ impl Plugin for ClientPlugin {
                 .label("p_queues_ping"),
         );
 
+        // fetch whenever possible
+        app.add_system(
+            fetch_messages
+                .run_in_state(states::client::GameState::InGame)
+                .label("fetch_messages"),
+        );
+
         // network timestep systems
         app.add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
@@ -141,14 +151,6 @@ impl Plugin for ClientPlugin {
             queue_inputs
                 .run_in_state(states::client::GameState::InGame)
                 .label("queue_inputs")
-                .after("increase_tick"),
-        )
-        .add_fixed_timestep_system(
-            NETWORK_TICK_LABEL,
-            0,
-            fetch_messages
-                .run_in_state(states::client::GameState::InGame)
-                .label("fetch_messages")
                 .after("increase_tick"),
         )
         .add_fixed_timestep_system(
@@ -281,8 +283,8 @@ fn queue_inputs(
                 let game_y = camera_box.center_coord.y + dist_y;
 
                 //calculate block coords from bevy coords
-                block_x_from_mouse = (game_x / 32.).round() as usize;
-                block_y_from_mouse = (game_y / -32.).round() as usize;
+                block_x_from_mouse = (game_x / PLAYER_AND_BLOCK_SIZE).round() as usize;
+                block_y_from_mouse = (game_y / PLAYER_AND_BLOCK_SIZE).round() as usize;
             }
         }
     }
@@ -321,7 +323,15 @@ fn fetch_messages(mut client: ResMut<Client>, mut messages: ResMut<Messages>) {
                 if message.header.sequence > client.last_received_sequence {
                     // handle all bodies sent from the server
                     for body in message.bodies {
-                        messages.messages.push(body);
+                        info!("message queue size: {}", messages.messages.len());
+                        while messages.messages.len() > MESSAGE_QUEUE_SIZE {
+                            messages.messages.pop_front();
+                            warn!(
+                                "trashed message due to overflow! new message queue size: {}",
+                                messages.messages.len()
+                            );
+                        }
+                        messages.messages.push_back(body);
                     }
 
                     // if we are desync'd
@@ -365,14 +375,25 @@ fn handle_messages(
     mut terrain: ResMut<Terrain>,
     other_players: Query<Entity, (With<Player>, Without<LocalPlayer>)>,
     mut local_player: Query<(&mut PlayerPosition, &mut Sprite), With<LocalPlayer>>,
+    old_blocks: Query<Entity, With<RenderedBlock>>,
     assets: Res<AssetServer>,
 ) {
-    while let Some(message) = messages.messages.pop() {
+    while let Some(message) = messages.messages.pop_front() {
         match message {
             ServerBodyElem::Pong(pong) => info!("got pong for seqnum: {}", pong),
-            ServerBodyElem::Terrain(t) => {
+            ServerBodyElem::Terrain(mut t) => {
                 // overwrite
                 info!("got terrain with {} chunks, overwriting!", t.chunks.len());
+
+                // de-render and destroy old chunks
+                for mut chunk in &mut terrain.chunks {
+                    derender_chunk(&mut commands, &mut chunk)
+                }
+
+                // render new chunks
+                for mut chunk in &mut t.chunks {
+                    render_chunk(&mut commands, &assets, &mut chunk);
+                }
 
                 // overwrite the terrain
                 *terrain = t;
@@ -437,7 +458,9 @@ fn send_bodies(mut client: ResMut<Client>) {
     };
     let success_str = format!("client sent message to server: {:?}", message);
     match client.send_message(message) {
-        Ok(_) => info!("{}", success_str),
+        Ok(_) => {
+            // info!("{}", success_str),
+        }
         Err(e) => error!("failed to send message to server: {:?}", e),
     }
 
