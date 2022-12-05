@@ -1,4 +1,4 @@
-use bevy::{diagnostic, prelude::*};
+use bevy::{diagnostic, prelude::*, window::PresentMode};
 
 mod args;
 mod credit_image;
@@ -59,6 +59,7 @@ fn main() {
                     title: String::from(TITLE),
                     width: WIN_W,
                     height: WIN_H,
+                    present_mode: PresentMode::Immediate,
                     ..default()
                 })
                 .insert_resource(ClearColor(Color::rgb(0.0, 0.6, 0.8)))

@@ -163,19 +163,6 @@ pub mod server {
 
                 match block_opt {
                     Some(block) => {
-                        match block.entity {
-                            Some(entity) => {
-                                // info!("despawning sprite for block at ({}, {})", x, y);
-                                commands.entity(entity).despawn();
-                            }
-                            None => {
-                                warn!("block at ({}, {}) exists but had no entity attached!", x, y);
-                            }
-                        };
-
-                        // unlink entity
-                        block.entity = None;
-
                         // clone block data so we can give it to the caller
                         let clone = block.clone();
 
@@ -209,8 +196,29 @@ fn destroy_world(mut commands: Commands, query: Query<Entity, With<RenderedBlock
     commands.remove_resource::<Terrain>();
 }
 
-/// Represents all chunks in the game world
-/// Should be a global resource
+/// Represents a change in world state can be either a complete "terrain" (vec of chunks)
+/// or a list of changes
+#[derive(Encode, Decode, Debug, Clone)]
+pub enum WorldDelta {
+    NewChunks(Terrain),
+    BlockDelete(BlockDelete),
+}
+
+/// Represents a single-block change (only deletion!) in a chunk
+#[derive(Encode, Decode, Debug, Clone)]
+pub struct BlockDelete {
+    /// The chunk in which the block was deleted
+    pub chunk_number: u64,
+    /// X position of changed block within the chunk
+    pub x: usize,
+    /// Y position of changed block within the chunk
+    pub y: usize,
+}
+
+/// Represents chunks in the game world
+/// On the server, this represents the entire game world
+/// On the client, this represents the part of the game world that the client knows about
+/// In a packet, this is a baseline transfer from server -> client
 #[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Terrain {
     /// Vector of chunks, each one contains its own chunk_number
@@ -757,6 +765,7 @@ pub fn spawn_chunk(
 }
 
 pub fn render_chunk(commands: &mut Commands, assets: &Res<AssetServer>, chunk: &mut Chunk) {
+    info!("rendering chunk #{}", chunk.chunk_number);
     //spawns each entity and links it to the block
     for x in 0..CHUNK_WIDTH {
         for y in 0..CHUNK_HEIGHT {
@@ -792,6 +801,7 @@ pub fn render_chunk(commands: &mut Commands, assets: &Res<AssetServer>, chunk: &
 
 pub fn derender_chunk(commands: &mut Commands, chunk: &mut Chunk) {
     //Despawns each entity and un asigns them
+    info!("derendering chunk #{}", chunk.chunk_number);
     for x in 0..CHUNK_WIDTH {
         for y in 0..CHUNK_HEIGHT {
             let block_opt = &mut chunk.blocks[y][x];
