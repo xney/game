@@ -22,7 +22,7 @@ const BASE_SEED: u64 = 82981925813;
 
 /// Increase for smaller caves
 /// Decrease for bigger caves
-const PERLIN_CAVE_THRESHOLD: f32 = 1.75;
+const PERLIN_CAVE_THRESHOLD: f32 = 0.25;
 
 pub mod client {
     use super::*;
@@ -100,8 +100,7 @@ pub mod server {
                     let target_chunk = player_chunk_number + offset;
 
                     // generate the chunk
-                    generate_chunk_veins(target_chunk, &mut terrain);
-                    let chunk = Chunk::new(target_chunk, &terrain.veins);
+                    let chunk = Chunk::new(target_chunk);
 
                     // add the chunk to our terrain resource
                     terrain.chunks.push(chunk);
@@ -120,8 +119,7 @@ pub mod server {
         create_surface_chunk(&mut terrain);
 
         // generate another chunk (index 1)
-        generate_chunk_veins(1, &mut terrain);
-        let chunk = Chunk::new(1, &terrain.veins);
+        let chunk = Chunk::new(1);
 
         // add the chunk to our terrain resource
         terrain.chunks.push(chunk);
@@ -218,36 +216,20 @@ pub struct Terrain {
     /// Vector of chunks, each one contains its own chunk_number
     /// TODO: potentially convert into a symbol table for faster lookups?
     pub chunks: Vec<Chunk>,
-    /// Vector of ore veins - these are generated each time a chunk is generated
-    /// Need to be chunk-independent as they can cross chunks
-    /// TODO: Make veins, caves, and biomes regenerated on the fly rather than stored here
-    veins: Vec<Vein>,
 }
 
 impl Terrain {
     /// Create a terrain with specified number of chunks
     /// Chunks contain default blocks and are numbered from 0 to len-1
     pub fn new(num_chunks: u64) -> Terrain {
-        // Generate veins, caves, and biomes for each chunk before generating the chunks so chunks can use them
-        let mut veins: Vec<Vein> = Vec::new();
-        // Generate veins, caves, and biomes
-        for chunk_number in 0..num_chunks {
-            for vein_number in 0..generate_random_vein_count(BASE_SEED, chunk_number) {
-                veins.push(Vein::new(chunk_number, vein_number));
-            }
-        }
+        let chunks = (0..num_chunks).map(|d| Chunk::new(d)).collect();
 
-        let chunks = (0..num_chunks).map(|d| Chunk::new(d, &veins)).collect();
-
-        Terrain { veins, chunks }
+        Terrain { chunks }
     }
 
     /// Creates a terrain with no chunks
     pub fn empty() -> Terrain {
-        Terrain {
-            chunks: Vec::new(),
-            veins: Vec::new(),
-        }
+        Terrain { chunks: Vec::new() }
     }
 }
 
@@ -262,13 +244,24 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    pub fn new(depth: u64, veins: &Vec<Vein>) -> Self {
+    pub fn new(depth: u64) -> Self {
         // start with empty chunk
         let mut c = Chunk {
             blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
             chunk_number: depth,
         };
         let tree = true;
+
+        // generate chunks for current and previous chunk
+        let mut veins = Vec::new();
+        if depth > 0 {
+            for vein_number in 0..generate_random_vein_count(BASE_SEED, depth - 1) {
+                veins.push(Vein::new(depth, vein_number));
+            }
+        }
+        for vein_number in 0..generate_random_vein_count(BASE_SEED, depth) {
+            veins.push(Vein::new(depth, vein_number));
+        }
 
         // get prev biome
         let mut prev_biome_search: Option<BiomeType> = None;
@@ -338,7 +331,7 @@ impl Chunk {
                 };
 
                 // Check if this is within the bounds of an ore vein
-                for vein in veins {
+                for vein in &veins {
                     // Only look at veins originating in previous or current chunk
                     if depth > 0
                         && ((vein.chunk_number == depth - 1) || (vein.chunk_number == depth))
@@ -376,6 +369,7 @@ impl Chunk {
                 if perlin_vals[y][x] > PERLIN_CAVE_THRESHOLD {
                     block_type = BlockType::CaveVoid;
                 }
+
 
                 if block_type != BlockType::CaveVoid {
                     c.blocks[y][x] = Some(Block {
@@ -468,7 +462,7 @@ impl Chunk {
         }
     }
 
-    pub fn new_surface(veins: &Vec<Vein>) -> Self {
+    pub fn new_surface() -> Self {
         // Create surface chunk with perlin slice functions
 
         let mut c = Chunk {
@@ -495,6 +489,12 @@ impl Chunk {
 
         let octave2 = procedural_functions::perlin_slice(BASE_SEED + 25, 32, CHUNK_WIDTH, 8);
 
+        // generate chunks for chunk
+        let mut veins = Vec::new();
+        for vein_number in 0..generate_random_vein_count(BASE_SEED, 0) {
+            veins.push(Vein::new(0, vein_number));
+        }
+
         // Loop through chunk, filling in where blocks should be
         for x in 0..CHUNK_WIDTH {
             let hill_top = (procedural_functions::slice_pos_x(x, &random_vals).round() as i32
@@ -519,7 +519,7 @@ impl Chunk {
                 };
 
                 // Check if this is within the bounds of an ore vein
-                for vein in veins {
+                for vein in &veins {
                     // Only look at veins originating in previous or current chunk
                     if vein.chunk_number == 0 {
                         let dist = dist_to_vein(vein, x as f32, y as f32);
@@ -743,11 +743,6 @@ impl BlockType {
     }
 }
 
-pub fn generate_chunk_veins(chunk_number: u64, terrain: &mut Terrain) {
-    for vein_number in 0..generate_random_vein_count(BASE_SEED, chunk_number) {
-        terrain.veins.push(Vein::new(chunk_number, vein_number));
-    }
-}
 /// Create all blocks in chunk as actual entities (and store references to entity in chunk.blocks)
 pub fn spawn_chunk(
     chunk_number: u64,
@@ -755,8 +750,7 @@ pub fn spawn_chunk(
     assets: &Res<AssetServer>,
     terrain: &mut Terrain,
 ) {
-    generate_chunk_veins(chunk_number, terrain);
-    let mut chunk = Chunk::new(chunk_number, &(terrain.veins));
+    let mut chunk = Chunk::new(chunk_number);
     //Calls function to loop through and create the entities and render them
     render_chunk(commands, assets, &mut chunk);
     // add the chunk to our terrain resource
@@ -817,10 +811,8 @@ pub fn derender_chunk(commands: &mut Commands, chunk: &mut Chunk) {
 
 /// Create all blocks in surface chunk as actual entities (and store references to entity in chunk.blocks)
 pub fn create_surface_chunk(terrain: &mut Terrain) {
-    generate_chunk_veins(0, terrain);
-
     // chunk will get rendered by client
-    let chunk = Chunk::new_surface(&(terrain.veins));
+    let chunk = Chunk::new_surface();
 
     terrain.chunks.push(chunk);
 }
@@ -876,7 +868,7 @@ fn print_encoding_sizes() {
         Err(e) => error!("unable to encode block: {}", e),
     }
 
-    match bincode::encode_to_vec(Chunk::new(0, &Vec::new()), BINCODE_CONFIG) {
+    match bincode::encode_to_vec(Chunk::new(0), BINCODE_CONFIG) {
         Ok(chunk) => info!("a default chunk is {} bytes", chunk.len()),
         Err(e) => error!("unable to encode chunk: {}", e),
     }
@@ -952,7 +944,7 @@ mod tests {
     #[test]
     fn encode_decode_chunk() {
         let original = {
-            let mut chunk = Chunk::new(0, &Vec::new());
+            let mut chunk = Chunk::new(0);
             // change some block
             chunk.blocks[1][1] = Some(Block::new(BlockType::Limestone));
             chunk
@@ -984,7 +976,7 @@ mod tests {
         let block_size = bincode::encode_to_vec(Block::new(BlockType::Limestone), BINCODE_CONFIG)
             .unwrap()
             .len();
-        let chunk_size = bincode::encode_to_vec(Chunk::new(0, &Vec::new()), BINCODE_CONFIG)
+        let chunk_size = bincode::encode_to_vec(Chunk::new(0), BINCODE_CONFIG)
             .unwrap()
             .len();
         let terrain_size = bincode::encode_to_vec(Terrain::new(1), BINCODE_CONFIG)
