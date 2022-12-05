@@ -1,4 +1,4 @@
-use bevy::{app::AppExit, ecs::system::Resource, prelude::*};
+use bevy::prelude::*;
 use iyes_loopless::prelude::*;
 
 use crate::states::client::GameState;
@@ -135,8 +135,6 @@ fn menu_action(
         (&Interaction, &MenuButtonAction),
         (Changed<Interaction>, With<Button>),
     >,
-    mut exit: EventWriter<AppExit>,
-    game_state: Res<CurrentState<GameState>>,
     mut commands: Commands,
 ) {
     for (interaction, menu_button_action) in &interaction_query {
@@ -144,7 +142,7 @@ fn menu_action(
             match menu_button_action {
                 MenuButtonAction::Quit => {
                     info!("quit button pressed");
-                    exit.send(AppExit);
+                    std::process::exit(0); // exit immediately
                 }
                 MenuButtonAction::Start => {
                     info!("start button pressed");

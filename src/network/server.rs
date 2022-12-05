@@ -1,62 +1,55 @@
 use super::*;
 use crate::{
-    player::PlayerInput,
+    args::ServerArgs,
+    player::{
+        server::{handle_movement, JumpDuration, JumpState},
+        PlayerInput, PlayerPosition,
+    },
     states,
-    world::{self, Terrain},
+    world::{self, server::check_generate_new_chunks, Terrain, CHUNK_HEIGHT},
 };
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
 use std::{
-    collections::HashMap,
+    collections::VecDeque,
     net::{SocketAddr, UdpSocket},
-    path::PathBuf,
 };
 
-const MAX_CLIENTS: usize = 2; // final goal = 2, strech goal = 4
-
-// holds command line info for server creation
-pub struct ServerInfo {
-    /// port
-    pub port: u16,
-    /// save file
-    pub save_file: PathBuf,
-}
+pub const MESSAGE_QUEUE_SIZE: usize = 20;
 
 /// Should be used as a global resource on the server
-struct Server {
+pub struct Server {
     /// UDP socket that should be used for everything
     socket: UdpSocket,
-    /// HashMap of clients using the socket address as the key
-    clients: HashMap<SocketAddr, ClientInfo>,
     /// The current sequence/tick number
     sequence: u64,
     /// Incoming buffer
     buffer: [u8; BUFFER_SIZE],
 }
 
-/// Information about a client
-#[derive(Debug)]
-struct ClientInfo {
-    /// The socket address
-    addr: SocketAddr,
-    /// The last confirmed sequence number
-    last_ack: u64,
-    /// Body elements that we build up
-    bodies: Vec<ServerBodyElem>,
-    /// How many frames until we drop it
-    until_drop: u64,
-    /// Player inputs
-    inputs: PlayerInput,
+/// Helper resource to decouple message reception and processing
+#[derive(Default)]
+struct Messages {
+    messages: VecDeque<(SocketAddr, ClientToServer)>,
 }
 
-impl ClientInfo {
-    fn new(addr: SocketAddr) -> Self {
-        ClientInfo {
-            addr,
-            last_ack: 0,
+/// Information about a client, stored as a component on players that are connected
+#[derive(Component, Debug)]
+pub struct ConnectedClientInfo {
+    /// The last confirmed sequence number
+    pub last_ack: u64,
+    /// Body elements that we build up
+    pub bodies: Vec<ServerBodyElem>,
+    /// How many frames until we drop it
+    pub until_drop: u64,
+}
+
+impl Default for ConnectedClientInfo {
+    fn default() -> Self {
+        ConnectedClientInfo {
+            last_ack: 0, // must be set immediately after creation
             bodies: Vec::with_capacity(DEFAULT_BODIES_VEC_CAPACITY),
             until_drop: FRAME_DIFFERENCE_BEFORE_DISCONNECT,
-            inputs: PlayerInput::default(),
         }
     }
 }
@@ -72,7 +65,6 @@ impl Server {
 
         Ok(Server {
             socket: sock,
-            clients: HashMap::with_capacity(MAX_CLIENTS * 2), // avoid resizing (default capacity is 16).,
             sequence: 1u64,
             buffer: [0u8; BUFFER_SIZE],
         })
@@ -80,21 +72,18 @@ impl Server {
 
     /// Send message to a specific client
     fn send_message(
-        &self,
+        &mut self,
         client_addr: SocketAddr,
         message: ServerToClient,
     ) -> Result<(), SendError> {
-        match &self.clients.get(&client_addr) {
-            Some(client) => {
-                send_message(&self.socket, client.addr, message)?;
-                Ok(())
-            }
-            None => Err(SendError::NoSuchPeer),
-        }
+        // TODO: check if address is acually a connected client via a query?
+        send_message(&self.socket, client_addr, message, &mut self.buffer)?;
+        Ok(())
     }
 
     /// Non-blocking way to get one message from the socket
-    fn get_one_message(&mut self) -> Result<(&mut ClientInfo, ClientToServer), ReceiveError> {
+    /// Can receive messages from _any_ address, not just connected clients
+    fn get_one_message(&mut self) -> Result<(SocketAddr, ClientToServer), ReceiveError> {
         // read from socket
         let (_size, sender_addr) = self.socket.recv_from(&mut self.buffer).map_err(|e| match e
             .kind()
@@ -107,32 +96,20 @@ impl Server {
         let (message, _size) = bincode::decode_from_slice(&self.buffer, BINCODE_CONFIG)
             .map_err(ReceiveError::DecodeError)?;
 
-        // if the server recieves a msg from a new client
-        if !self.clients.contains_key(&sender_addr) {
-            // if at max clients, return error
-            if self.clients.len() == MAX_CLIENTS {
-                return Err(ReceiveError::UnknownSender);
-            }
-            // add the new client
-            self.clients
-                .insert(sender_addr, ClientInfo::new(sender_addr));
-        }
-
         // unwrap OK because we just guaranteed the client is in our HashMap
-        Ok((self.clients.get_mut(&sender_addr).unwrap(), message))
+        Ok((sender_addr, message))
     }
 }
 
 /// Bevy plugin that implements server logic
 pub struct ServerPlugin {
-    pub port: u16,
-    pub save_file: PathBuf,
+    pub args: ServerArgs,
 }
 
 impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
-        // insert server info as resource
-        app.insert_resource(ServerInfo{port: self.port, save_file: self.save_file.clone()});
+        // add arguments
+        app.insert_resource(self.args.clone());
 
         // add game tick
         app.add_fixed_timestep(
@@ -156,15 +133,43 @@ impl Plugin for ServerPlugin {
         app.add_fixed_timestep_system(
             GAME_TICK_LABEL,
             0,
-            server_handle_messages
+            retrieve_messages
                 .run_in_state(states::server::GameState::Running)
-                .label("handle_messages"),
+                .label("retrieve_messages"),
         )
         .add_fixed_timestep_system(
             GAME_TICK_LABEL,
             0,
-            || {}, // TODO: simulate physics
+            handle_messages
+                .run_in_state(states::server::GameState::Running)
+                .label("handle_messages")
+                .after("retrieve_messages"),
+        )
+        .add_fixed_timestep_system(
+            GAME_TICK_LABEL,
+            0,
+            check_generate_new_chunks
+                .run_in_state(states::server::GameState::Running)
+                .label("check_generate_new_chunks")
+                .after("handle_messages"),
+        )
+        .add_fixed_timestep_system(
+            GAME_TICK_LABEL,
+            0,
+            handle_movement
+                .run_in_state(states::server::GameState::Running)
+                .label("handle_movement")
+                .after("check_generate_new_chunks"),
         );
+
+        // debug print player info
+        // app.add_fixed_timestep_system(
+        //     NETWORK_TICK_LABEL,
+        //     0,
+        //     debug_print_players
+        //         .run_in_state(states::server::GameState::Running)
+        //         .label("debug_print_players"),
+        // );
 
         // TODO: add run condition to only run if self.clients.len() > 0
         // network tick systems
@@ -186,6 +191,14 @@ impl Plugin for ServerPlugin {
         .add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
             0,
+            enqueue_player_info
+                .run_in_state(states::server::GameState::Running)
+                .label("enqueue_player_info")
+                .after("increase_network_tick"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
             enqueue_terrain
                 .run_in_state(states::server::GameState::Running)
                 .label("enqueue_terrain")
@@ -197,6 +210,7 @@ impl Plugin for ServerPlugin {
             send_all_messages
                 .run_in_state(states::server::GameState::Running)
                 .after("enqueue_terrain")
+                .after("enqueue_player_info")
                 .label("send_messages"),
         )
         .add_fixed_timestep_system(
@@ -210,14 +224,16 @@ impl Plugin for ServerPlugin {
     }
 }
 
-fn create_server(mut commands: Commands, server_info: Res<ServerInfo>) {
+fn create_server(mut commands: Commands, args: Res<ServerArgs>) {
     // TODO: use command line arguments for port and handle failure better
-    let server = match Server::new(server_info.port) {
+    let server = match Server::new(args.port) {
         Ok(s) => s,
         Err(e) => panic!("Unable to create server: {}", e),
     };
 
     commands.insert_resource(server);
+
+    commands.insert_resource(Messages::default());
 
     info!("server created");
 }
@@ -232,15 +248,19 @@ fn increase_network_tick(mut server: ResMut<Server>) {
 }
 
 fn process_player_mining(
-    server: Res<Server>,
+    query: Query<(&ClientAddress, &PlayerInput)>,
     mut terrain: ResMut<Terrain>,
     mut commands: Commands,
 ) {
-    for (addr, client) in &server.clients {
-        let inputs = &client.inputs;
+    for (addr, inputs) in query.iter() {
         if inputs.mine {
-            let res =
-                world::destroy_block(inputs.block_x, inputs.block_y, &mut commands, &mut terrain);
+            // destroy the block
+            let res = world::server::destroy_block(
+                inputs.block_x,
+                inputs.block_y,
+                &mut commands,
+                &mut terrain,
+            );
             match res {
                 Ok(block) => {
                     info!(
@@ -259,13 +279,25 @@ fn process_player_mining(
     }
 }
 
-/// Server system
-fn server_handle_messages(mut server: ResMut<Server>) {
+/// Server system that runs on _every_ frame
+/// Places messages into Messages resource
+fn retrieve_messages(mut server: ResMut<Server>, mut messages: ResMut<Messages>) {
+    // loop until we break (on NoMessage)
     loop {
         // handle all messages on our socket
         match server.get_one_message() {
-            Ok((client, message)) => {
-                compute_new_bodies(client, message);
+            Ok(m) => {
+                // put into resource
+
+                info!("message queue size: {}", messages.messages.len());
+                while messages.messages.len() > MESSAGE_QUEUE_SIZE {
+                    messages.messages.pop_front();
+                    warn!(
+                        "trashed message due to overflow! new message queue size: {}",
+                        messages.messages.len()
+                    );
+                }
+                messages.messages.push_back(m);
             }
             Err(ReceiveError::NoMessage) => {
                 // break whenever we run out of messages
@@ -282,9 +314,108 @@ fn server_handle_messages(mut server: ResMut<Server>) {
     }
 }
 
+/// System that handles all messages from the Messages resource
+fn handle_messages(
+    mut messages: ResMut<Messages>,
+    mut commands: Commands,
+    mut query: Query<(
+        Entity,
+        &ClientAddress,
+        Option<&mut ConnectedClientInfo>,
+        &mut PlayerInput,
+    )>,
+) {
+    /*
+    We have to handle several different cases and we need immediate access
+    to all components (spawn() has a 1-tick delay), so if needed, we create
+    the components inside this function, call process_client_message,
+    then add the components to the entity
+    */
+
+    // for each message
+    while let Some((addr, message)) = messages.messages.pop_front() {
+        let mut entity: Option<Entity> = None;
+
+        // check if we have a player at this address already
+        for (e, client_addr, _, _) in query.iter() {
+            if client_addr.addr == addr {
+                entity = Some(e)
+            }
+        }
+
+        match entity {
+            Some(entity) => {
+                // client is either currently connected or has connected before
+                // unwrap OK since we iterated to find it above
+                let e = query.get_mut(entity).unwrap();
+
+                // unpack tuple here for readability
+                let maybe_connected = e.2;
+                let mut input = e.3;
+
+                match maybe_connected {
+                    Some(mut connected) => {
+                        // client is currently connected
+
+                        // process the client message
+                        process_client_message(&addr, &mut connected, message, &mut input);
+                    }
+                    None => {
+                        // client has connected before, but timed out
+                        info!("reconnection from {}", addr);
+                        let mut connected = ConnectedClientInfo::default();
+
+                        // process the client message
+                        process_client_message(&addr, &mut connected, message, &mut input);
+
+                        // add connected to the entity
+                        commands.entity(entity).insert(connected);
+
+                        // add other connected-only components to entity
+                        commands
+                            .entity(entity)
+                            .insert(JumpDuration::default())
+                            .insert(JumpState::default());
+                    }
+                };
+            }
+            None => {
+                // new connection
+                let client_addr = ClientAddress { addr };
+                let position = PlayerPosition::default();
+                let mut input = PlayerInput::default();
+                let jump_dur = JumpDuration::default();
+                let jump_state = JumpState::default();
+                // TODO: add inventory
+                let mut connected = ConnectedClientInfo::default();
+
+                info!("new connection from {}", addr);
+
+                // process the message
+                process_client_message(&addr, &mut connected, message, &mut input);
+
+                // create entity with components
+                commands
+                    .spawn()
+                    .insert(client_addr)
+                    .insert(position)
+                    .insert(input)
+                    .insert(connected)
+                    .insert(jump_dur)
+                    .insert(jump_state);
+            }
+        }
+    }
+}
+
 /// Process a client's message and push new bodies to the next packet sent to the client
-/// TODO: will probably need direct World access in the future
-fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
+/// Uses client message info to overwrite player input components
+fn process_client_message(
+    addr: &SocketAddr,
+    client: &mut ConnectedClientInfo,
+    message: ClientToServer,
+    input: &mut PlayerInput,
+) {
     // TODO: just impl Display or Debug instead
     let mut bodies_str = "".to_string();
     for body in &message.bodies {
@@ -295,7 +426,7 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
     }
     info!(
         "server got message from client @ {} with {} bodies: {}",
-        client.addr,
+        addr,
         message.bodies.len(),
         bodies_str
     );
@@ -322,11 +453,11 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
         // match client bodies to server bodies
         .filter_map(|elem| match elem {
             ClientBodyElem::Ping => Some(ServerBodyElem::Pong(message.header.current_sequence)),
-            ClientBodyElem::Input(input) => {
+            ClientBodyElem::Input(new_input) => {
                 if in_order {
-                    info!("server inputs for client {}", client.addr);
-                    // add inputs to server
-                    client.inputs = input.clone();
+                    info!("server got inputs for client {}", addr);
+                    // add inputs to player entity's input component
+                    *input = new_input.clone();
                 }
 
                 // never respond directly to input bodies
@@ -350,13 +481,16 @@ fn compute_new_bodies(client: &mut ClientInfo, message: ClientToServer) {
     // only keep pongs that are in response to a ping newer than or equals to the client's last_ack
     client.bodies.retain(|elem| match elem {
         ServerBodyElem::Pong(seq) => *seq >= client.last_ack,
-        ServerBodyElem::Terrain(_) => true, // always keep terrains
+        _ => true, // keep everything else
     });
 }
 
-fn send_all_messages(mut server: ResMut<Server>) {
+fn send_all_messages(
+    mut server: ResMut<Server>,
+    mut query: Query<(&ClientAddress, &mut ConnectedClientInfo)>,
+) {
     // loop over clients
-    for (client_addr, client_info) in &server.clients {
+    for (client_addr, client_info) in query.iter_mut() {
         let message = ServerToClient {
             header: ServerHeader {
                 sequence: server.sequence,
@@ -365,18 +499,20 @@ fn send_all_messages(mut server: ResMut<Server>) {
         };
 
         // form message via borrow before consuming it
-        let success_msg = format!("server sent message to {:?}", client_info.addr);
-        match server.send_message(*client_addr, message) {
-            Ok(_) => info!("{}", success_msg),
+        let success_msg = format!("server sent message to {:?}", client_addr);
+        match server.send_message(client_addr.addr, message) {
+            Ok(_) => {
+                // info!("{}", success_msg),
+            }
             Err(e) => error!("server unable to send message: {:?}", e),
         }
     }
 
     // filter out client bodies
-    for client_info in server.clients.values_mut() {
+    for (_, mut client_info) in query.iter_mut() {
         client_info.bodies.retain(|b| match b {
             ServerBodyElem::Pong(_) => true, // keep pongs until we know they were received
-            ServerBodyElem::Terrain(_) => false, // never keep old terrains
+            _ => false,                      // never keep anything else
         });
     }
 }
@@ -384,26 +520,100 @@ fn send_all_messages(mut server: ResMut<Server>) {
 /// Add the terrain to the next packet sent
 /// TODO: convert to delta and baseline
 /// TODO: use reference for terrain instead of clone?
-fn enqueue_terrain(mut server: ResMut<Server>, terrain: Res<Terrain>) {
-    for client in server.clients.values_mut() {
-        client.bodies.push(ServerBodyElem::Terrain(terrain.clone()));
-        info!("enqueued terrain");
+fn enqueue_terrain(
+    terrain: Res<Terrain>,
+    mut clients: Query<(&ClientAddress, &mut ConnectedClientInfo, &PlayerPosition)>,
+) {
+    for (addr, mut client, player_position) in clients.iter_mut() {
+        // the number of the chunk that the player is in
+        let player_chunk = -(player_position.y) as usize / CHUNK_HEIGHT as usize;
+        let chunk_range = if player_chunk == 0 {
+            0..=1
+        } else {
+            (player_chunk - 1)..=(player_chunk + 1)
+        };
+
+        // info!("enqueuing partial terrain {:?} to {}", chunk_range, addr);
+
+        // the terrain we will send them
+        let mut partial = Terrain::empty();
+        // clone in only specified chunks
+        for chunk_number in chunk_range {
+            partial.chunks.push(terrain.chunks[chunk_number].clone())
+        }
+
+        // push it
+        client.bodies.push(ServerBodyElem::Terrain(partial));
     }
 }
 
-fn drop_disconnected_clients(mut server: ResMut<Server>) {
-    // drop clients that haven't responded in a while
-    server.clients.retain(|address, client| {
-        let keep = client.until_drop > 0;
-        if !keep {
-            warn!("dropping client {}", address);
+/// Enqueues all player information to each client
+fn enqueue_player_info(
+    // With<> for connected players only
+    info: Query<(&ClientAddress, &PlayerPosition), With<ConnectedClientInfo>>,
+    mut clients: Query<(&ClientAddress, &mut ConnectedClientInfo)>,
+) {
+    // for each connected client
+    for (target_client_addr, mut target_client) in clients.iter_mut() {
+        // body for this target client
+        let mut players = Vec::new();
+
+        // loop over every connected player info
+        for (addr, pos) in info.iter() {
+            let info = SingleNetPlayerInfo {
+                addr: addr.clone(),
+                position: pos.clone(),
+            };
+
+            if addr.addr == target_client_addr.addr {
+                // this is the target player information
+                // put it at index 0
+                players.insert(0, info);
+            } else {
+                // this is some other player
+                // push it toend
+                players.push(info);
+            }
         }
 
-        keep
-    });
+        // enqueue the body
+        target_client
+            .bodies
+            .push(ServerBodyElem::PlayerInfo(players));
+    }
+}
 
-    // loop through active clients
-    for client_info in server.clients.values_mut() {
-        client_info.until_drop -= 1;
+/// drop clients (remove ConnectedClientInfo) that haven't responded in a while
+fn drop_disconnected_clients(
+    mut clients: Query<(Entity, &ClientAddress, &mut ConnectedClientInfo)>,
+    mut commands: Commands,
+) {
+    for (entity, addr, mut client) in clients.iter_mut() {
+        // if we need to drop them
+        if client.until_drop == 0 {
+            warn!("dropping client {}", addr);
+            // remove all connected-only components
+            commands
+                .entity(entity)
+                .remove::<ConnectedClientInfo>()
+                .remove::<JumpState>()
+                .remove::<JumpDuration>();
+        } else {
+            // in else so we never underflow
+            client.until_drop -= 1;
+        }
+    }
+}
+
+/// debug print client info
+fn debug_print_players(query: Query<(Entity, &ClientAddress, Option<&ConnectedClientInfo>)>) {
+    // print entity, address, and connected
+    for (e, addr, connected) in query.iter() {
+        info!(
+            "e:{}, addr:{}, connected:{}",
+            e.id(),
+            addr,
+            connected.is_some()
+        );
     }
 }

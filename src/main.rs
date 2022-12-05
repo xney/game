@@ -1,4 +1,4 @@
-use bevy::{prelude::*, render::render_resource::Texture};
+use bevy::{diagnostic, prelude::*};
 
 mod args;
 mod credit_image;
@@ -23,7 +23,7 @@ fn main() {
     let mut app = App::new();
 
     match args {
-        args::GameArgs::Server(s) => {
+        args::GameArgs::Server(args) => {
             // server specific plugins
             // DefaultPlugins minus the unnecessary ones
             app.add_plugins(MinimalPlugins)
@@ -34,16 +34,10 @@ fn main() {
                 .add_plugin(bevy::asset::AssetPlugin)
                 .add_plugin(bevy::scene::ScenePlugin);
 
-            // TODO:
-            // server player plugin
-
             app.add_plugin(states::server::StatePlugin);
 
             // server network plugin
-            app.add_plugin(network::server::ServerPlugin {
-                port: s.port,
-                save_file: s.save_file,
-            });
+            app.add_plugin(network::server::ServerPlugin { args });
 
             app.add_plugin(world::server::WorldPlugin);
 
@@ -51,7 +45,7 @@ fn main() {
             app.add_plugin(save::server::SaveLoadPlugin);
         }
 
-        args::GameArgs::Client(c) => {
+        args::GameArgs::Client(args) => {
             // client specific plugins
 
             // default plugins
@@ -73,17 +67,11 @@ fn main() {
                         .insert(CharacterCamera);
                 })
                 .add_startup_system(setup_background)
-                // TODO: rework for client
                 .add_plugin(world::client::WorldPlugin)
-                .add_plugin(player::PlayerPlugin)
-                // TODO: remove or rebrand as a debugging tool
-                .add_plugin(save::client::SaveLoadPlugin);
+                .add_plugin(player::client::PlayerPlugin);
 
             // client network plugin
-            app.add_plugin(network::client::ClientPlugin {
-                server_address: c.server_ip.into(),
-                server_port: c.server_port,
-            });
+            app.add_plugin(network::client::ClientPlugin { args });
         }
     }
 

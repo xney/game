@@ -3,7 +3,6 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use bevy::prelude::info;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use rand_distr::{Binomial, Distribution};
 
@@ -242,7 +241,7 @@ pub fn noise(x: f32, y: f32, p: [usize; 512]) -> f32 {
     let x1_inter = lerp(v, d1, d3);
     let x2_inter = lerp(v, d2, d4);
     let y_inter = lerp(u, x1_inter, x2_inter);
-    
+
     return y_inter;
 }
 
@@ -262,7 +261,7 @@ pub fn fade(t: f32) -> f32 {
 
 //Linearly interpolate values a and b
 pub fn lerp(a: f32, b: f32, lambda: f32) -> f32 {
-    return b + a*(lambda-b);
+    return b + a * (lambda - b);
     //return (1. - lambda) * a + lambda * b;
 }
 

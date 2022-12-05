@@ -4,18 +4,19 @@ use crate::{
         self, dist_to_vein, generate_perlin_noise, generate_random_cave, generate_random_vein,
         generate_random_vein_count,
     },
-    save, states,
+    states,
 };
 use bevy::prelude::*;
-use iyes_loopless::prelude::*;
-use std::fs::*;
-use std::io::Write;
-
 use bincode::{BorrowDecode, Decode, Encode};
-use rand::Rng;
+use iyes_loopless::prelude::*;
+
+use crate::player::PlayerPosition;
 
 pub const CHUNK_HEIGHT: usize = 64;
 pub const CHUNK_WIDTH: usize = 128;
+
+// how many chunks should always be generated below the lowest player
+const GEN_CHUNKS_AHEAD: u64 = 3;
 
 const BASE_SEED: u64 = 82981925813;
 
@@ -35,44 +36,167 @@ pub mod client {
                 .add_system_set(
                     ConditionSet::new()
                         .run_in_state(states::client::GameState::InGame)
-                        .with_system(f2_prints_terrain)
-                        .with_system(g_deletes_random_block)
+                        .with_system(f2_prints_terrain_encoding)
+                        .with_system(f3_prints_terrain_info)
                         .into(),
                 )
                 .add_exit_system(states::client::GameState::InGame, destroy_world);
         }
     }
+
+    fn create_world(mut commands: Commands) {
+        info!("creating terrain on client");
+
+        // create now, insert as resource later
+        let terrain = Terrain::empty();
+
+        // now add as resource
+        commands.insert_resource(terrain);
+    }
 }
 
 pub mod server {
-    use crate::network;
+    use crate::network::server::ConnectedClientInfo;
 
     use super::*;
-
-    use iyes_loopless::prelude::*;
 
     pub struct WorldPlugin;
 
     impl Plugin for WorldPlugin {
         fn build(&self, app: &mut App) {
-            // server world is loaded by the save plugin. it calls create_world if nothing is loaded
+            app.add_enter_system(
+                states::server::GameState::Running,
+                create_world.label("create_world"),
+            );
+
             app.add_exit_system(states::server::GameState::Running, destroy_world);
         }
     }
-}
 
-pub fn create_world(mut commands: Commands) {
-    info!("creating world");
+    pub fn check_generate_new_chunks(
+        query: Query<&PlayerPosition, With<ConnectedClientInfo>>,
+        mut terrain: ResMut<Terrain>,
+    ) {
+        // the highest numbered (lowest in the world) chunk in our terrain
+        let highest_numbered_chunk_in_terrain = if terrain.chunks.len() == 0 {
+            0
+        } else {
+            (terrain.chunks.len() - 1) as u64
+        };
 
-    // create now, insert as resource later
-    let mut terrain = Terrain::empty();
+        // info!(
+        //     "our highest chunk is chunk {}",
+        //     highest_numbered_chunk_in_terrain
+        // );
 
-    // Generate one chunk
-    // TODO: move this into terrain creation
-    create_surface_chunk(&mut terrain);
+        for position in query.iter() {
+            let player_chunk_number = (-position.y) as u64 / CHUNK_HEIGHT as u64;
 
-    // now add as resource
-    commands.insert_resource(terrain);
+            // info!("found player at chunk {}", player_chunk_number);
+
+            // check if we need to generate more chunks below, assume we already generated the chunks above
+            for offset in 0..GEN_CHUNKS_AHEAD {
+                if player_chunk_number + offset > highest_numbered_chunk_in_terrain {
+                    let target_chunk = player_chunk_number + offset;
+
+                    // generate the chunk
+                    let chunk = Chunk::new(target_chunk);
+
+                    // add the chunk to our terrain resource
+                    terrain.chunks.push(chunk);
+                }
+            }
+        }
+    }
+
+    fn create_world(mut commands: Commands) {
+        info!("creating terrain on server");
+
+        // create now, insert as resource later
+        let mut terrain = Terrain::empty();
+
+        // Generate one chunk
+        create_surface_chunk(&mut terrain);
+
+        // generate another chunk (index 1)
+        let chunk = Chunk::new(1);
+
+        // add the chunk to our terrain resource
+        terrain.chunks.push(chunk);
+
+        // now add as resource
+        commands.insert_resource(terrain);
+    }
+
+    #[derive(Debug)]
+    pub enum DestroyBlockError {
+        /// Tried to search past array index in X direction
+        /// TODO: make this compile-time error
+        InvalidX,
+        /// Corresponding chunk location is not loaded (outside Y)
+        ChunkNotLoaded,
+        /// Block data at the location is empty (block doesn't exist!)
+        BlockDoesntExist,
+    }
+
+    /// Destroy a block at a global position
+    pub fn destroy_block(
+        x: usize,
+        y: usize,
+        commands: &mut Commands,
+        terrain: &mut Terrain,
+    ) -> Result<Block, DestroyBlockError> {
+        let chunk_number = y / CHUNK_HEIGHT;
+        let block_y_in_chunk = y % CHUNK_HEIGHT;
+
+        // make sure our x is in range
+        // TODO: do this in a const fashion?
+        if x >= CHUNK_WIDTH {
+            return Err(DestroyBlockError::InvalidX);
+        }
+
+        // find if we have the chunk in our terrain
+        for chunk in &mut terrain.chunks {
+            if chunk.chunk_number == (chunk_number as u64) {
+                // we have found our chunk
+                let block_opt = &mut chunk.blocks[block_y_in_chunk][x];
+
+                match block_opt {
+                    Some(block) => {
+                        match block.entity {
+                            Some(entity) => {
+                                // info!("despawning sprite for block at ({}, {})", x, y);
+                                commands.entity(entity).despawn();
+                            }
+                            None => {
+                                warn!("block at ({}, {}) exists but had no entity attached!", x, y);
+                            }
+                        };
+
+                        // unlink entity
+                        block.entity = None;
+
+                        // clone block data so we can give it to the caller
+                        let clone = block.clone();
+
+                        // remove the block from our data array
+                        // original block is dropped here
+                        *block_opt = None;
+
+                        // give the clone back to the caller
+                        // TODO: maybe give a different data type?
+                        return Ok(clone);
+                    }
+                    None => {
+                        // warn!("no block exists at ({}, {})", x, y);
+                        return Err(DestroyBlockError::BlockDoesntExist);
+                    }
+                }
+            }
+        }
+
+        Err(DestroyBlockError::ChunkNotLoaded)
+    }
 }
 
 fn destroy_world(mut commands: Commands, query: Query<Entity, With<RenderedBlock>>) {
@@ -115,7 +239,6 @@ impl Terrain {
 pub struct Chunk {
     /// 2D array [x, y]
     pub blocks: [[Option<Block>; CHUNK_WIDTH]; CHUNK_HEIGHT],
-    pub rendered: bool,
     /// starting row for blocks is chunk_number * CHUNK_HEIGHT
     pub chunk_number: u64,
 }
@@ -126,9 +249,8 @@ impl Chunk {
         let mut c = Chunk {
             blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
             chunk_number: depth,
-            rendered: false,
         };
-        let mut tree = true;
+        let tree = true;
 
         // generate chunks for current and previous chunk
         let mut veins = Vec::new();
@@ -332,13 +454,19 @@ impl Chunk {
         return c;
     }
 
+    pub fn empty(chunk_number: u64) -> Self {
+        Self {
+            blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
+            chunk_number,
+        }
+    }
+
     pub fn new_surface() -> Self {
         // Create surface chunk with perlin slice functions
 
         let mut c = Chunk {
             blocks: [[None; CHUNK_WIDTH]; CHUNK_HEIGHT],
             chunk_number: 0,
-            rendered: false,
         };
 
         let random_vals = procedural_functions::generate_random_values(
@@ -623,19 +751,13 @@ pub fn spawn_chunk(
 ) {
     let mut chunk = Chunk::new(chunk_number);
     //Calls function to loop through and create the entities and render them
-    render_chunk(chunk_number, commands, assets, &mut chunk);
+    render_chunk(commands, assets, &mut chunk);
     // add the chunk to our terrain resource
     terrain.chunks.push(chunk);
 }
 
-pub fn render_chunk(
-    chunk_number: u64,
-    commands: &mut Commands,
-    assets: &Res<AssetServer>,
-    chunk: &mut Chunk,
-) {
-    //spawns each entity and asigns it
-    chunk.rendered = true;
+pub fn render_chunk(commands: &mut Commands, assets: &Res<AssetServer>, chunk: &mut Chunk) {
+    //spawns each entity and links it to the block
     for x in 0..CHUNK_WIDTH {
         for y in 0..CHUNK_HEIGHT {
             let block_opt = &mut chunk.blocks[y][x];
@@ -650,7 +772,7 @@ pub fn render_chunk(
                         transform: Transform {
                             translation: Vec3::from_array([
                                 to_world_point_x(x),
-                                to_world_point_y(y, chunk_number),
+                                to_world_point_y(y, chunk.chunk_number),
                                 1.,
                             ]),
                             ..default()
@@ -670,7 +792,6 @@ pub fn render_chunk(
 
 pub fn derender_chunk(commands: &mut Commands, chunk: &mut Chunk) {
     //Despawns each entity and un asigns them
-    chunk.rendered = false;
     for x in 0..CHUNK_WIDTH {
         for y in 0..CHUNK_HEIGHT {
             let block_opt = &mut chunk.blocks[y][x];
@@ -693,76 +814,6 @@ pub fn create_surface_chunk(terrain: &mut Terrain) {
     let chunk = Chunk::new_surface();
 
     terrain.chunks.push(chunk);
-}
-
-#[derive(Debug)]
-pub enum DestroyBlockError {
-    /// Tried to search past array index in X direction
-    /// TODO: make this compile-time error
-    InvalidX,
-    /// Corresponding chunk location is not loaded (outside Y)
-    ChunkNotLoaded,
-    /// Block data at the location is empty (block doesn't exist!)
-    BlockDoesntExist,
-}
-
-/// Destroy a block at a global position
-pub fn destroy_block(
-    x: usize,
-    y: usize,
-    commands: &mut Commands,
-    terrain: &mut Terrain,
-) -> Result<Block, DestroyBlockError> {
-    let chunk_number = y / CHUNK_HEIGHT;
-    let block_y_in_chunk = y % CHUNK_HEIGHT;
-
-    // make sure our x is in range
-    // TODO: do this in a const fashion?
-    if x >= CHUNK_WIDTH {
-        return Err(DestroyBlockError::InvalidX);
-    }
-
-    // find if we have the chunk in our terrain
-    for chunk in &mut terrain.chunks {
-        if chunk.chunk_number == (chunk_number as u64) {
-            // we have found our chunk
-            let block_opt = &mut chunk.blocks[block_y_in_chunk][x];
-
-            match block_opt {
-                Some(block) => {
-                    match block.entity {
-                        Some(entity) => {
-                            // info!("despawning sprite for block at ({}, {})", x, y);
-                            commands.entity(entity).despawn();
-                        }
-                        None => {
-                            warn!("block at ({}, {}) exists but had no entity attached!", x, y);
-                        }
-                    };
-
-                    // unlink entity
-                    block.entity = None;
-
-                    // clone block data so we can give it to the caller
-                    let clone = block.clone();
-
-                    // remove the block from our data array
-                    // original block is dropped here
-                    *block_opt = None;
-
-                    // give the clone back to the caller
-                    // TODO: maybe give a different data type?
-                    return Ok(clone);
-                }
-                None => {
-                    // warn!("no block exists at ({}, {})", x, y);
-                    return Err(DestroyBlockError::BlockDoesntExist);
-                }
-            }
-        }
-    }
-
-    Err(DestroyBlockError::ChunkNotLoaded)
 }
 
 pub fn block_exists(x: usize, y: usize, terrain: &mut Terrain) -> bool {
@@ -827,8 +878,23 @@ fn print_encoding_sizes() {
     }
 }
 
+/// Make the F3 key dump client terrain information
+fn f3_prints_terrain_info(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
+    if !input.just_pressed(KeyCode::F3) {
+        return;
+    }
+
+    let mut id_str = String::new();
+
+    for chunk in &terrain.chunks {
+        id_str.push_str(&format!("{}, ", chunk.chunk_number));
+    }
+
+    info!("terrain has {} chunks: {}", terrain.chunks.len(), id_str);
+}
+
 /// Make the F2 key dump the encoded terrain
-fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
+fn f2_prints_terrain_encoding(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
     // return early if F2 was not just pressed
     if !input.just_pressed(KeyCode::F2) {
         return;
@@ -857,64 +923,6 @@ fn f2_prints_terrain(input: Res<Input<KeyCode>>, terrain: Res<Terrain>) {
             error!("unable to encode terrain, {}", e);
         }
     }
-}
-
-// Load world from vec (assumes terrain is cleared)
-pub fn spawn_sprites_from_terrain(
-    commands: &mut Commands,
-    assets: &AssetServer,
-    terrain: &mut Terrain,
-) {
-    for chunk in &mut terrain.chunks {
-        for x in 0..CHUNK_WIDTH {
-            for y in 0..CHUNK_HEIGHT {
-                let block_opt = &mut chunk.blocks[y][x];
-                // if there is a block at this location
-                if let Some(block) = block_opt {
-                    // spawn in the sprite for the block
-                    let entity = commands
-                        .spawn()
-                        .insert_bundle(SpriteBundle {
-                            texture: assets.load(block.block_type.image_file_path()),
-                            transform: Transform {
-                                translation: Vec3::from_array([
-                                    to_world_point_x(x),
-                                    to_world_point_y(y, chunk.chunk_number),
-                                    1.,
-                                ]),
-                                ..default()
-                            },
-                            ..default()
-                        })
-                        .insert(RenderedBlock)
-                        .id();
-
-                    // link the entity to the block
-                    block.entity = Option::Some(entity);
-                }
-            }
-        }
-    }
-}
-
-/// Make the G key delete a random block in the first chunk
-fn g_deletes_random_block(
-    input: Res<Input<KeyCode>>,
-    mut commands: Commands,
-    mut terrain: ResMut<Terrain>,
-) {
-    // return early if g was not just pressed
-    if !input.pressed(KeyCode::G) {
-        return;
-    }
-
-    let (x, y) = (
-        rand::thread_rng().gen_range(0..CHUNK_WIDTH),
-        rand::thread_rng().gen_range(0..CHUNK_HEIGHT),
-    );
-
-    // don't care about result here
-    let _res = destroy_block(x, y, &mut commands, &mut terrain);
 }
 
 /// unit tests
