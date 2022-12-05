@@ -159,7 +159,6 @@ impl Plugin for ClientPlugin {
             handle_messages
                 .run_in_state(states::client::GameState::InGame)
                 .label("handle_messages")
-                .after("fetch_messages"),
         )
         .add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
