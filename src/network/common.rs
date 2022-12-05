@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     player::{PlayerInput, PlayerPosition},
-    world::Terrain,
+    world::{Terrain, WorldDelta},
 };
 
 /// This is the bincode config that we should use everywhere
@@ -33,7 +33,7 @@ pub const DEFAULT_BODIES_VEC_CAPACITY: usize = 10;
 pub const FRAME_DIFFERENCE_BEFORE_DISCONNECT: u64 = NETWORK_TICK_HZ * 2;
 
 /// how many times per second will the network tick occur
-pub const NETWORK_TICK_HZ: u64 = 10;
+pub const NETWORK_TICK_HZ: u64 = 60;
 
 /// timestep for sending out network messages
 pub const NETWORK_TICK_LABEL: &str = "NETWORK_TICK";
@@ -67,10 +67,8 @@ pub enum ServerBodyElem {
     /// contains sequence number of ping
     /// TODO: remove
     Pong(u64),
-    /// simple terrain update
-    /// TODO: separate into baseline and delta
-    /// TODO: use ref instead
-    Terrain(Terrain),
+    /// Change in world state, either baseline or delta
+    WorldDeltas(Vec<WorldDelta>),
     /// Player location info
     /// 0th element is the client's local player
     PlayerInfo(Vec<SingleNetPlayerInfo>),

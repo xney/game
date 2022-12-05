@@ -6,12 +6,16 @@ use crate::{
         PlayerInput, PlayerPosition,
     },
     states,
-    world::{self, server::check_generate_new_chunks, Terrain, CHUNK_HEIGHT},
+    world::{
+        self, server::check_generate_new_chunks, BlockDelete, Terrain, WorldDelta, CHUNK_HEIGHT,
+        CHUNK_WIDTH,
+    },
 };
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
+    f32::consts::E,
     net::{SocketAddr, UdpSocket},
 };
 
@@ -42,6 +46,10 @@ pub struct ConnectedClientInfo {
     pub bodies: Vec<ServerBodyElem>,
     /// How many frames until we drop it
     pub until_drop: u64,
+    /// Last confirmed world state (only the chunks that it knows about)
+    pub last_confirmed_terrain: Terrain,
+    /// Map of sequence numbers to deltas sent
+    pub deltas: HashMap<u64, Vec<WorldDelta>>,
 }
 
 impl Default for ConnectedClientInfo {
@@ -50,6 +58,8 @@ impl Default for ConnectedClientInfo {
             last_ack: 0, // must be set immediately after creation
             bodies: Vec::with_capacity(DEFAULT_BODIES_VEC_CAPACITY),
             until_drop: FRAME_DIFFERENCE_BEFORE_DISCONNECT,
+            last_confirmed_terrain: Terrain::empty(),
+            deltas: HashMap::new(),
         }
     }
 }
@@ -255,26 +265,27 @@ fn process_player_mining(
     for (addr, inputs) in query.iter() {
         if inputs.mine {
             // destroy the block
-            let res = world::server::destroy_block(
+            let _res = world::server::destroy_block(
                 inputs.block_x,
                 inputs.block_y,
                 &mut commands,
                 &mut terrain,
             );
-            match res {
-                Ok(block) => {
-                    info!(
-                        "player {} destroyed block at ({}, {}): {:?}",
-                        addr, inputs.block_x, inputs.block_y, block.block_type
-                    );
-                }
-                Err(err) => {
-                    error!(
-                        "player {} unable to destroy block at ({}, {}): {:?}",
-                        addr, inputs.block_x, inputs.block_y, err
-                    );
-                }
-            }
+            // we don't really care what happens
+            // match res {
+            //     Ok(block) => {
+            //         info!(
+            //             "player {} destroyed block at ({}, {}): {:?}",
+            //             addr, inputs.block_x, inputs.block_y, block.block_type
+            //         );
+            //     }
+            //     Err(err) => {
+            //         error!(
+            //             "player {} unable to destroy block at ({}, {}): {:?}",
+            //             addr, inputs.block_x, inputs.block_y, err
+            //         );
+            //     }
+            // }
         }
     }
 }
@@ -289,7 +300,7 @@ fn retrieve_messages(mut server: ResMut<Server>, mut messages: ResMut<Messages>)
             Ok(m) => {
                 // put into resource
 
-                info!("message queue size: {}", messages.messages.len());
+                // info!("message queue size: {}", messages.messages.len());
                 while messages.messages.len() > MESSAGE_QUEUE_SIZE {
                     messages.messages.pop_front();
                     warn!(
@@ -424,12 +435,12 @@ fn process_client_message(
             ClientBodyElem::Input(_) => "input,",
         });
     }
-    info!(
-        "server got message from client @ {} with {} bodies: {}",
-        addr,
-        message.bodies.len(),
-        bodies_str
-    );
+    // info!(
+    //     "server got message from client @ {} with {} bodies: {}",
+    //     addr,
+    //     message.bodies.len(),
+    //     bodies_str
+    // );
 
     let mut in_order = false;
 
@@ -438,11 +449,51 @@ fn process_client_message(
     // i.e. only use the most recent input
     if message.header.last_received_sequence > client.last_ack {
         client.last_ack = message.header.last_received_sequence;
-        client.bodies.clear();
+        client.bodies.clear(); // clear any pending pings
 
-        // reset its drop timer
+        // get the changes we need to apply to our baseline
+        let changes = client.deltas.get(&client.last_ack);
+
+        match changes {
+            // apply the changes
+            Some(changes) => {
+                for change in changes {
+                    match change {
+                        WorldDelta::NewChunks(terrain) => {
+                            // replace entire terrain
+                            client.last_confirmed_terrain = terrain.clone();
+                        }
+                        WorldDelta::BlockDelete(delete) => {
+                            // delete single block
+
+                            // find chunk
+                            for mut chunk in &mut client.last_confirmed_terrain.chunks {
+                                if chunk.chunk_number == delete.chunk_number {
+                                    // delete the block
+                                    chunk.blocks[delete.y][delete.x] = None;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                error!(
+                    "client ack'd a message that doesn't have a stored changelist?: {}",
+                    client.last_ack
+                );
+            }
+        }
+
+        // drop all old stored changes
+        client
+            .deltas
+            .retain(|&seq_num, _| seq_num > client.last_ack);
+
+        // reset client's drop timer
         client.until_drop = FRAME_DIFFERENCE_BEFORE_DISCONNECT;
 
+        // this message was in-order
         in_order = true;
     }
 
@@ -455,7 +506,7 @@ fn process_client_message(
             ClientBodyElem::Ping => Some(ServerBodyElem::Pong(message.header.current_sequence)),
             ClientBodyElem::Input(new_input) => {
                 if in_order {
-                    info!("server got inputs for client {}", addr);
+                    // info!("server got inputs for client {}", addr);
                     // add inputs to player entity's input component
                     *input = new_input.clone();
                 }
@@ -522,6 +573,7 @@ fn send_all_messages(
 /// TODO: use reference for terrain instead of clone?
 fn enqueue_terrain(
     terrain: Res<Terrain>,
+    server: Res<Server>,
     mut clients: Query<(&ClientAddress, &mut ConnectedClientInfo, &PlayerPosition)>,
 ) {
     for (addr, mut client, player_position) in clients.iter_mut() {
@@ -535,15 +587,83 @@ fn enqueue_terrain(
 
         // info!("enqueuing partial terrain {:?} to {}", chunk_range, addr);
 
-        // the terrain we will send them
-        let mut partial = Terrain::empty();
-        // clone in only specified chunks
-        for chunk_number in chunk_range {
-            partial.chunks.push(terrain.chunks[chunk_number].clone())
+        // chunks that the client has
+        let client_chunks: Vec<u64> = client
+            .last_confirmed_terrain
+            .chunks
+            .iter()
+            .map(|c| c.chunk_number)
+            .collect();
+
+        // check if the client doesn't have a chunk that it should
+        let mut needs_baseline = false;
+        for chunk_num in chunk_range.clone() {
+            // check if client is missing this chunk number
+            let mut filter = client_chunks.iter().filter(|c| **c == chunk_num as u64);
+            if filter.next().is_none() {
+                // if it is missing a chunk, it needs a new baseline
+                needs_baseline = true;
+            }
         }
 
-        // push it
-        client.bodies.push(ServerBodyElem::Terrain(partial));
+        let mut world_changes = Vec::new();
+
+        if needs_baseline {
+            // resend the entire baseline!
+            // the terrain we will send them
+            let mut baseline = Terrain::empty();
+            // clone in only specified chunks
+            for chunk_number in chunk_range {
+                baseline.chunks.push(terrain.chunks[chunk_number].clone())
+            }
+
+            // push it
+            world_changes.push(WorldDelta::NewChunks(baseline));
+        } else {
+            // just calcluate the block deletions
+            for client_chunk in &mut client.last_confirmed_terrain.chunks {
+                let chunk_num = client_chunk.chunk_number;
+
+                // server chunks are always at their correct index
+                let server_chunk = terrain.chunks.get(chunk_num as usize);
+                match server_chunk {
+                    Some(server_chunk) => {
+                        // loop over blocks in chunk
+                        for y in 0..CHUNK_HEIGHT {
+                            for x in 0..CHUNK_WIDTH {
+                                // if the client chunk has a block here but server doesn't
+                                if client_chunk.blocks[y][x].is_some()
+                                    && server_chunk.blocks[y][x].is_none()
+                                {
+                                    // create delta (deletion)
+                                    let block_deletion = BlockDelete {
+                                        chunk_number: chunk_num,
+                                        x,
+                                        y,
+                                    };
+                                    // push it to the client
+                                    world_changes.push(WorldDelta::BlockDelete(block_deletion));
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        error!(
+                            "client somehow has chunk that server doesn't have: {}",
+                            chunk_num
+                        );
+                    }
+                }
+            }
+        }
+
+        // send client these deltas
+        client
+            .bodies
+            .push(ServerBodyElem::WorldDeltas(world_changes.clone()));
+
+        // keep track of what we've sent so we can update their baseline when they respond
+        client.deltas.insert(server.sequence, world_changes);
     }
 }
 
@@ -560,7 +680,7 @@ fn enqueue_player_info(
 
         // loop over every connected player info
         for (addr, pos) in info.iter() {
-            let info = SingleNetPlayerInfo {
+            let player_info = SingleNetPlayerInfo {
                 addr: addr.clone(),
                 position: pos.clone(),
             };
@@ -568,11 +688,11 @@ fn enqueue_player_info(
             if addr.addr == target_client_addr.addr {
                 // this is the target player information
                 // put it at index 0
-                players.insert(0, info);
+                players.insert(0, player_info);
             } else {
                 // this is some other player
                 // push it toend
-                players.push(info);
+                players.push(player_info);
             }
         }
 

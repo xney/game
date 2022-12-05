@@ -48,6 +48,8 @@ pub struct PlayerInput {
 }
 
 pub mod server {
+    use crate::network::server::ConnectedClientInfo;
+
     use super::*;
 
     #[derive(Component)]
@@ -116,7 +118,7 @@ pub mod server {
             &mut JumpDuration,
             &mut JumpState,
             &PlayerInput,
-        )>,
+        ), With<ConnectedClientInfo>>,
         _time: Res<Time>,
         terrain: Res<Terrain>,
     ) {

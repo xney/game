@@ -7,7 +7,7 @@ use crate::player::client::{spawn_other_player_at, CameraBoundsBox, LocalPlayer,
 use crate::player::{PlayerInput, PlayerPosition, CAMERA_BOUNDS_SIZE, PLAYER_AND_BLOCK_SIZE};
 use crate::states;
 use crate::states::client::GameState;
-use crate::world::{derender_chunk, render_chunk, RenderedBlock, Terrain};
+use crate::world::{derender_chunk, render_chunk, RenderedBlock, Terrain, WorldDelta};
 use crate::{WIN_H, WIN_W};
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
@@ -56,7 +56,7 @@ impl Client {
             last_received_sequence: 0,
             current_sequence: 0,
             bodies: Vec::with_capacity(DEFAULT_BODIES_VEC_CAPACITY),
-            debug_paused: true, // TODO: remove
+            debug_paused: false,
             real_tick_count: 0,
             buffer: [0u8; BUFFER_SIZE],
         })
@@ -321,15 +321,15 @@ fn fetch_messages(mut client: ResMut<Client>, mut messages: ResMut<Messages>) {
     loop {
         match client.get_one_message() {
             Ok(message) => {
-                info!(
-                    "client received message with {} bodies",
-                    message.bodies.len()
-                );
+                // info!(
+                //     "client received message with {} bodies",
+                //     message.bodies.len()
+                // );
                 // only process newer messages, ignore old ones that arrive out of orders
                 if message.header.sequence > client.last_received_sequence {
                     // handle all bodies sent from the server
                     for body in message.bodies {
-                        info!("message queue size: {}", messages.messages.len());
+                        // info!("message queue size: {}", messages.messages.len());
                         while messages.messages.len() > MESSAGE_QUEUE_SIZE {
                             messages.messages.pop_front();
                             warn!(
@@ -379,7 +379,7 @@ fn handle_messages(
     mut messages: ResMut<Messages>,
     mut commands: Commands,
     mut terrain: ResMut<Terrain>,
-    other_players: Query<Entity, (With<Player>, Without<LocalPlayer>)>,
+    other_players: Query<(Entity, &ClientAddress), (With<Player>, Without<LocalPlayer>)>,
     mut local_player: Query<(&mut PlayerPosition, &mut Sprite), With<LocalPlayer>>,
     old_blocks: Query<Entity, With<RenderedBlock>>,
     assets: Res<AssetServer>,
@@ -387,37 +387,75 @@ fn handle_messages(
     while let Some(message) = messages.messages.pop_front() {
         match message {
             ServerBodyElem::Pong(pong) => info!("got pong for seqnum: {}", pong),
-            ServerBodyElem::Terrain(mut t) => {
-                // overwrite
-                info!("got terrain with {} chunks, overwriting!", t.chunks.len());
+            ServerBodyElem::WorldDeltas(mut deltas) => {
+                for delta in deltas {
+                    match delta {
+                        WorldDelta::NewChunks(new_terrain) => {
+                            //
+                            info!(
+                                "got new completely new chunks!: {:?}",
+                                new_terrain
+                                    .chunks
+                                    .iter()
+                                    .map(|c| c.chunk_number)
+                                    .collect::<Vec<_>>()
+                            );
 
-                // de-render and destroy old chunks
-                for mut chunk in &mut terrain.chunks {
-                    derender_chunk(&mut commands, &mut chunk)
+                            // de-render and destroy old chunks
+                            for mut chunk in &mut terrain.chunks {
+                                derender_chunk(&mut commands, &mut chunk)
+                            }
+
+                            // overwrite the terrain
+                            *terrain = new_terrain;
+
+                            // render new chunks
+                            for mut chunk in &mut terrain.chunks {
+                                render_chunk(&mut commands, &assets, &mut chunk);
+                            }
+                        }
+                        WorldDelta::BlockDelete(delete) => {
+                            info!("got block deletion: {:?}", delete);
+
+                            for chunk in &mut terrain.chunks {
+                                if chunk.chunk_number == delete.chunk_number {
+                                    let maybe_block = &mut chunk.blocks[delete.y][delete.x];
+                                    match maybe_block {
+                                        Some(block) => {
+                                            // un-render block entity if it exists
+                                            if let Some(e) = block.entity {
+                                                info!("despawning mined block");
+                                                commands.entity(e).despawn();
+                                            }
+                                            // delete the block
+                                            *maybe_block = None;
+                                        }
+                                        None => {
+                                            // block already deleted
+                                            warn!("client got BlockDelete but block already doesn't exist!");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // info!("done processing received terrain");
                 }
-
-                // render new chunks
-                for mut chunk in &mut t.chunks {
-                    render_chunk(&mut commands, &assets, &mut chunk);
-                }
-
-                // overwrite the terrain
-                *terrain = t;
-
-                info!("done processing received terrain");
             }
             ServerBodyElem::PlayerInfo(info_vec) => {
                 // delete all old non-local players
-                for entity in other_players.iter() {
+                for (entity, addr) in other_players.iter() {
+                    info!("despawning player {:?}", addr);
                     commands.entity(entity).despawn();
                 }
 
                 if info_vec.len() >= 1 {
                     let info = &info_vec[0];
-                    info!(
-                        "new local player position is: ({}, {})",
-                        info.position.x, info.position.y
-                    );
+                    // info!(
+                    //     "new local player position is: ({}, {})",
+                    //     info.position.x, info.position.y
+                    // );
                     let (mut local_pos, mut local_sprite) = local_player.single_mut();
 
                     // update local player game position, will be rendered in another system
@@ -441,10 +479,10 @@ fn handle_messages(
                     }
                 }
 
-                info!(
-                    "done processing received player info, len: {}",
-                    info_vec.len()
-                );
+                // info!(
+                //     "done processing received player info, len: {}",
+                //     info_vec.len()
+                // );
             }
         }
     }
