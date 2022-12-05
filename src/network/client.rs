@@ -158,7 +158,7 @@ impl Plugin for ClientPlugin {
             0,
             handle_messages
                 .run_in_state(states::client::GameState::InGame)
-                .label("handle_messages")
+                .label("handle_messages"),
         )
         .add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
@@ -251,7 +251,7 @@ fn queue_inputs(
     bevy_input: Res<Input<KeyCode>>,
     mouse: Res<Input<MouseButton>>,
     mut windows: ResMut<Windows>,
-    mut query: Query<(&mut Transform, &mut CameraBoundsBox, With<LocalPlayer>)>,
+    mut query: Query<(&mut PlayerPosition, &mut CameraBoundsBox), With<LocalPlayer>>,
 ) {
     // TODO: remove
     if client.debug_paused {
@@ -265,30 +265,31 @@ fn queue_inputs(
 
     let window = windows.get_primary_mut();
 
-    if !window.is_none() {
-        let win = window.unwrap();
-        for (_transform, camera_box, _player) in query.iter_mut() {
-            let ms = win.cursor_position();
-
-            if !ms.is_none() {
-                let mouse_pos = ms.unwrap();
-
-                //calculate distance of click from camera center
-                let dist_x = mouse_pos.x - (WIN_W / 2.);
-                let dist_y = mouse_pos.y - (WIN_H / 2.);
-
-                //calculate bevy choords of click
-                let game_x = camera_box.center_coord.x + dist_x;
-                let game_y = camera_box.center_coord.y + dist_y;
-
-                //calculate block coords from bevy coords
-                block_x_from_mouse = (game_x / PLAYER_AND_BLOCK_SIZE).round() as usize;
-                block_y_from_mouse = (game_y / PLAYER_AND_BLOCK_SIZE).round() as usize;
-            }
-        }
+    if window.is_none() {
+        error!("no window, cannot scrape inputs!");
     }
 
-    let input = PlayerInput {
+    let win = window.unwrap();
+    let (player_position, camera_box) = query.single();
+    let ms = win.cursor_position();
+
+    if !ms.is_none() {
+        let mouse_pos = ms.unwrap();
+
+        //calculate distance of click from camera center
+        let dist_x = mouse_pos.x - (WIN_W / 2.);
+        let dist_y = mouse_pos.y - (WIN_H / 2.);
+
+        //calculate bevy coords of click
+        let game_x = camera_box.center_coord.x + dist_x;
+        let game_y = camera_box.center_coord.y + dist_y;
+
+        //calculate block coords from bevy coords
+        block_x_from_mouse = (game_x / PLAYER_AND_BLOCK_SIZE).round() as usize;
+        block_y_from_mouse = (game_y / PLAYER_AND_BLOCK_SIZE).round() as usize;
+    }
+
+    let mut input = PlayerInput {
         left: bevy_input.pressed(KeyCode::A),
         right: bevy_input.pressed(KeyCode::D),
         jump: bevy_input.pressed(KeyCode::Space),
@@ -297,7 +298,13 @@ fn queue_inputs(
         block_y: block_y_from_mouse,
     };
 
-    // TODO: add block mining attempts
+    // TODO: remove
+    // DEBUG: make G destroy the block below the player
+    if bevy_input.pressed(KeyCode::G) {
+        input.mine = true;
+        input.block_x = player_position.x as usize;
+        input.block_y = (-player_position.y) as usize + 1;
+    }
 
     client.enqueue_body(ClientBodyElem::Input(input));
 }

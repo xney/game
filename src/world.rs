@@ -370,7 +370,6 @@ impl Chunk {
                     block_type = BlockType::CaveVoid;
                 }
 
-
                 if block_type != BlockType::CaveVoid {
                     c.blocks[y][x] = Some(Block {
                         block_type,
