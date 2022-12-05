@@ -145,7 +145,7 @@ pub fn send_message<M: NetworkMessage>(
 }
 
 /// A component on _all_ players, connected or not
-#[derive(Component, Debug, Encode, Decode, Clone)]
+#[derive(Component, Debug, Encode, Decode, Clone, PartialEq, Eq, Hash)]
 pub struct ClientAddress {
     pub addr: SocketAddr,
 }

@@ -765,6 +765,7 @@ pub fn spawn_chunk(
 }
 
 pub fn render_chunk(commands: &mut Commands, assets: &Res<AssetServer>, chunk: &mut Chunk) {
+    info!("rendering chunk #{}", chunk.chunk_number);
     //spawns each entity and links it to the block
     for x in 0..CHUNK_WIDTH {
         for y in 0..CHUNK_HEIGHT {
@@ -800,7 +801,7 @@ pub fn render_chunk(commands: &mut Commands, assets: &Res<AssetServer>, chunk: &
 
 pub fn derender_chunk(commands: &mut Commands, chunk: &mut Chunk) {
     //Despawns each entity and un asigns them
-    info!("re-derendering chunk #{}", chunk.chunk_number);
+    info!("derendering chunk #{}", chunk.chunk_number);
     for x in 0..CHUNK_WIDTH {
         for y in 0..CHUNK_HEIGHT {
             let block_opt = &mut chunk.blocks[y][x];

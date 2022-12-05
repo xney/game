@@ -110,7 +110,9 @@ fn save_server(
                 Ok(mut file) => {
                     // write the bytes to file
                     match file.write_all(&encoded_vec) {
-                        Ok(_) => info!("saved to file!"),
+                        Ok(_) => {
+                            // info!("saved to file!"),
+                        }
                         Err(e) => error!("could not write to save file, {}", e),
                     }
                 }

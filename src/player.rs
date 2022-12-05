@@ -113,12 +113,15 @@ pub mod server {
 
     //Handles player movement, gravity, jumpstate
     pub fn handle_movement(
-        mut query: Query<(
-            &mut PlayerPosition,
-            &mut JumpDuration,
-            &mut JumpState,
-            &PlayerInput,
-        ), With<ConnectedClientInfo>>,
+        mut query: Query<
+            (
+                &mut PlayerPosition,
+                &mut JumpDuration,
+                &mut JumpState,
+                &PlayerInput,
+            ),
+            With<ConnectedClientInfo>,
+        >,
         _time: Res<Time>,
         terrain: Res<Terrain>,
     ) {
@@ -388,6 +391,7 @@ pub mod client {
             .insert(CameraBoundsBox {
                 center_coord: bevy_position.clone(),
             });
+        // TODO: reset camera
     }
 
     fn destroy_all_players(
@@ -411,30 +415,35 @@ pub mod client {
         commands: &mut Commands,
         assets: &AssetServer,
         addr: &ClientAddress,
-        x: f32,
-        y: f32,
+        position: &PlayerPosition
     ) {
         // color based on address
         let color = addr.color();
 
         // game coords -> bevy rendering coords
-        let real_x = x * 32.;
-        let real_y = y * 32.;
+        let real_x = position.x * 32.;
+        let real_y = position.y * 32.;
 
-        commands.spawn().insert(Player).insert_bundle(SpriteBundle {
-            transform: Transform {
-                // render in front of blocks
-                translation: Vec3::new(real_x as f32, real_y as f32, PLAYER_Z),
+        commands
+            .spawn()
+            .insert_bundle(SpriteBundle {
+                transform: Transform {
+                    // render in front of blocks
+                    translation: Vec3::new(real_x as f32, real_y as f32, PLAYER_Z),
+                    ..default()
+                },
+                texture: assets.load(PLAYER_ASSET),
+                sprite: Sprite {
+                    custom_size: Some(Vec2::splat(PLAYER_AND_BLOCK_SIZE)),
+                    color: color, // tint
+                    ..default()
+                },
                 ..default()
-            },
-            texture: assets.load(PLAYER_ASSET),
-            sprite: Sprite {
-                custom_size: Some(Vec2::splat(PLAYER_AND_BLOCK_SIZE)),
-                color: color, // tint
-                ..default()
-            },
-            ..default()
-        });
+            })
+
+            .insert(Player)
+            .insert(position.clone())
+            .insert(addr.clone());
     }
 
     fn handle_camera_movement(

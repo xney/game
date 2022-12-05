@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{SocketAddr, UdpSocket};
 
 use super::*;
@@ -11,8 +11,6 @@ use crate::world::{derender_chunk, render_chunk, RenderedBlock, Terrain, WorldDe
 use crate::{WIN_H, WIN_W};
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
-
-pub const MESSAGE_QUEUE_SIZE: usize = 10;
 
 /// Should be used as a global resource on the client
 #[derive(Debug)]
@@ -130,13 +128,6 @@ impl Plugin for ClientPlugin {
                 .label("p_queues_ping"),
         );
 
-        // fetch whenever possible
-        app.add_system(
-            fetch_messages
-                .run_in_state(states::client::GameState::InGame)
-                .label("fetch_messages"),
-        );
-
         // network timestep systems
         app.add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
@@ -148,10 +139,18 @@ impl Plugin for ClientPlugin {
         .add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
             0,
+            fetch_messages
+                .run_in_state(states::client::GameState::InGame)
+                .label("fetch_messages")
+                .after("increase_tick"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
             queue_inputs
                 .run_in_state(states::client::GameState::InGame)
                 .label("queue_inputs")
-                .after("increase_tick"),
+                .after("fetch_messages"),
         )
         .add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
@@ -286,7 +285,7 @@ fn queue_inputs(
 
         //calculate block coords from bevy coords
         block_x_from_mouse = (game_x / PLAYER_AND_BLOCK_SIZE).round() as usize;
-        block_y_from_mouse = (game_y / PLAYER_AND_BLOCK_SIZE).round() as usize;
+        block_y_from_mouse = (-game_y / PLAYER_AND_BLOCK_SIZE).round() as usize;
     }
 
     let mut input = PlayerInput {
@@ -327,16 +326,11 @@ fn fetch_messages(mut client: ResMut<Client>, mut messages: ResMut<Messages>) {
                 // );
                 // only process newer messages, ignore old ones that arrive out of orders
                 if message.header.sequence > client.last_received_sequence {
-                    // handle all bodies sent from the server
+                    // wipe bodies from old packets, since the server is sending deltas anyway
+                    messages.messages.clear();
+
+                    // buffer all bodies sent from the server in this packet
                     for body in message.bodies {
-                        // info!("message queue size: {}", messages.messages.len());
-                        while messages.messages.len() > MESSAGE_QUEUE_SIZE {
-                            messages.messages.pop_front();
-                            warn!(
-                                "trashed message due to overflow! new message queue size: {}",
-                                messages.messages.len()
-                            );
-                        }
                         messages.messages.push_back(body);
                     }
 
@@ -345,11 +339,13 @@ fn fetch_messages(mut client: ResMut<Client>, mut messages: ResMut<Messages>) {
                         let ticks_ahead =
                             client.current_sequence as i64 - message.header.sequence as i64;
                         let ahead = ticks_ahead > 0;
-                        warn!(
-                            "client out of sync, {} ticks {}!",
-                            if ahead { ticks_ahead } else { -ticks_ahead },
-                            if ahead { "ahead" } else { "behind" }
-                        );
+                        if ticks_ahead.abs() > 5 {
+                            warn!(
+                                "client out of sync, {} ticks {}!",
+                                if ahead { ticks_ahead } else { -ticks_ahead },
+                                if ahead { "ahead" } else { "behind" }
+                            );
+                        }
 
                         // jump to server's sequence
                         client.current_sequence = message.header.sequence;
@@ -379,15 +375,23 @@ fn handle_messages(
     mut messages: ResMut<Messages>,
     mut commands: Commands,
     mut terrain: ResMut<Terrain>,
-    other_players: Query<(Entity, &ClientAddress), (With<Player>, Without<LocalPlayer>)>,
+    mut other_players: Query<
+        (Entity, &mut PlayerPosition, &ClientAddress),
+        (With<Player>, Without<LocalPlayer>),
+    >,
     mut local_player: Query<(&mut PlayerPosition, &mut Sprite), With<LocalPlayer>>,
     old_blocks: Query<Entity, With<RenderedBlock>>,
     assets: Res<AssetServer>,
 ) {
+    // new players after this frame, so we can delete old players
+    let mut all_players = HashSet::new();
+    let mut new_players = HashMap::new();
+    let mut got_some_player_info = false;
+
     while let Some(message) = messages.messages.pop_front() {
         match message {
             ServerBodyElem::Pong(pong) => info!("got pong for seqnum: {}", pong),
-            ServerBodyElem::WorldDeltas(mut deltas) => {
+            ServerBodyElem::WorldDeltas(deltas) => {
                 for delta in deltas {
                     match delta {
                         WorldDelta::NewChunks(new_terrain) => {
@@ -415,7 +419,7 @@ fn handle_messages(
                             }
                         }
                         WorldDelta::BlockDelete(delete) => {
-                            info!("got block deletion: {:?}", delete);
+                            // info!("got block deletion: {:?}", delete);
 
                             for chunk in &mut terrain.chunks {
                                 if chunk.chunk_number == delete.chunk_number {
@@ -424,7 +428,7 @@ fn handle_messages(
                                         Some(block) => {
                                             // un-render block entity if it exists
                                             if let Some(e) = block.entity {
-                                                info!("despawning mined block");
+                                                // info!("despawning mined block");
                                                 commands.entity(e).despawn();
                                             }
                                             // delete the block
@@ -432,7 +436,7 @@ fn handle_messages(
                                         }
                                         None => {
                                             // block already deleted
-                                            warn!("client got BlockDelete but block already doesn't exist!");
+                                            // warn!("client got BlockDelete but block already doesn't exist!");
                                         }
                                     }
                                 }
@@ -444,11 +448,7 @@ fn handle_messages(
                 }
             }
             ServerBodyElem::PlayerInfo(info_vec) => {
-                // delete all old non-local players
-                for (entity, addr) in other_players.iter() {
-                    info!("despawning player {:?}", addr);
-                    commands.entity(entity).despawn();
-                }
+                got_some_player_info = true;
 
                 if info_vec.len() >= 1 {
                     let info = &info_vec[0];
@@ -465,17 +465,24 @@ fn handle_messages(
                     local_sprite.color = info.addr.color();
                 }
 
-                // render all new non-local players
+                // setup non-local players
                 if info_vec.len() > 1 {
-                    for player in &info_vec[1..] {
-                        // spawn new entity with Player and transform at location
-                        spawn_other_player_at(
-                            &mut commands,
-                            assets.as_ref(),
-                            &player.addr,
-                            player.position.x,
-                            player.position.y,
-                        );
+                    // for each player
+                    for info in &info_vec[1..] {
+                        // if they already exist, set new position
+                        let mut found = false;
+                        for (e, mut pos, addr) in other_players.iter_mut() {
+                            if info.addr == *addr {
+                                *pos = info.position.clone();
+                                found = true;
+                            }
+                        }
+                        if !found {
+                            // player wasn't found, spawn them in later
+                            new_players.insert(info.addr.clone(), info.clone());
+                        }
+                        // don't despawn this player
+                        all_players.insert(info.addr.clone());
                     }
                 }
 
@@ -483,6 +490,33 @@ fn handle_messages(
                 //     "done processing received player info, len: {}",
                 //     info_vec.len()
                 // );
+            }
+        }
+    }
+
+    // spawn in new players
+    if new_players.len() > 0 {
+        for (_, player) in new_players {
+            // spawn new entity with Player and transform at location
+            spawn_other_player_at(
+                &mut commands,
+                assets.as_ref(),
+                &player.addr,
+                &player.position,
+            );
+            warn!("new player {}", player.addr);
+        }
+    }
+
+    // if we actually got some player info this frame
+    if got_some_player_info {
+        // for all previously spawned players
+        for (e, _pos, addr) in other_players.iter() {
+            // if we didn't hear about them this frame
+            if !all_players.contains(addr) {
+                // delete
+                commands.entity(e).despawn();
+                warn!("delete player {}", addr);
             }
         }
     }

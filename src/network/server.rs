@@ -301,12 +301,15 @@ fn retrieve_messages(mut server: ResMut<Server>, mut messages: ResMut<Messages>)
                 // put into resource
 
                 // info!("message queue size: {}", messages.messages.len());
-                while messages.messages.len() > MESSAGE_QUEUE_SIZE {
-                    messages.messages.pop_front();
+                if messages.messages.len() > MESSAGE_QUEUE_SIZE {
                     warn!(
-                        "trashed message due to overflow! new message queue size: {}",
+                        "trashing messages due to overflow! current message queue size: {}",
                         messages.messages.len()
                     );
+                }
+
+                while messages.messages.len() > MESSAGE_QUEUE_SIZE {
+                    messages.messages.pop_front();
                 }
                 messages.messages.push_back(m);
             }
@@ -316,6 +319,11 @@ fn retrieve_messages(mut server: ResMut<Server>, mut messages: ResMut<Messages>)
             }
             Err(ReceiveError::UnknownSender) => {
                 warn!("server recieve error: server is full!");
+            }
+            #[cfg(target_os = "windows")]
+            Err(ReceiveError::IoError(e)) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                // ignore
+                // why does windows even do this?? UDP is connectionless
             }
             Err(e) => {
                 // anything else is a "real" error that we should complain about
@@ -342,6 +350,10 @@ fn handle_messages(
     the components inside this function, call process_client_message,
     then add the components to the entity
     */
+
+    // process all messages from new clients all together at the end of this function,
+    // since entities aren't spawned until next frame
+    let mut new_clients: HashMap<SocketAddr, Vec<ClientToServer>> = HashMap::new();
 
     // for each message
     while let Some((addr, message)) = messages.messages.pop_front() {
@@ -391,31 +403,44 @@ fn handle_messages(
                 };
             }
             None => {
-                // new connection
-                let client_addr = ClientAddress { addr };
-                let position = PlayerPosition::default();
-                let mut input = PlayerInput::default();
-                let jump_dur = JumpDuration::default();
-                let jump_state = JumpState::default();
-                // TODO: add inventory
-                let mut connected = ConnectedClientInfo::default();
-
-                info!("new connection from {}", addr);
-
-                // process the message
-                process_client_message(&addr, &mut connected, message, &mut input);
-
-                // create entity with components
-                commands
-                    .spawn()
-                    .insert(client_addr)
-                    .insert(position)
-                    .insert(input)
-                    .insert(connected)
-                    .insert(jump_dur)
-                    .insert(jump_state);
+                // if we already got a message from this new client this frame
+                if let Some(mut client_messages) = new_clients.get_mut(&addr) {
+                    client_messages.push(message);
+                } else {
+                    // else this is the first messages from this new client this frame
+                    new_clients.insert(addr.clone(), vec![message]);
+                }
             }
         }
+    }
+
+    for (addr, c_messages) in new_clients {
+        // new connection
+        let client_addr = ClientAddress { addr };
+        let position = PlayerPosition::default();
+        let mut input = PlayerInput::default();
+        let jump_dur = JumpDuration::default();
+        let jump_state = JumpState::default();
+        // TODO: add inventory
+        let mut connected = ConnectedClientInfo::default();
+
+        info!("new connection from {}", client_addr);
+
+        for message in c_messages {
+            // process the message
+            process_client_message(&client_addr.addr, &mut connected, message, &mut input);
+        }
+
+        // create entity with components
+        // ONLY once per new client
+        commands
+            .spawn()
+            .insert(client_addr)
+            .insert(position)
+            .insert(input)
+            .insert(connected)
+            .insert(jump_dur)
+            .insert(jump_state);
     }
 }
 
