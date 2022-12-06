@@ -396,9 +396,7 @@ pub mod client {
             .insert(CameraBoundsBox {
                 center_coord: bevy_position.clone(),
             });
-<<<<<<< Updated upstream
         // TODO: reset camera
-=======
 
 
      let inventory_text_style = TextStyle {
@@ -469,7 +467,6 @@ pub mod client {
         });
         n = n + 1;
     }
->>>>>>> Stashed changes
     }
 
     fn destroy_all_players(
