@@ -3,6 +3,7 @@ use bevy::{
     sprite::collide_aabb::{collide, Collision},
     time::Stopwatch,
 };
+use crate::world::BlockType;
 use iyes_loopless::prelude::*;
 use std::{cmp, time::Duration};
 
@@ -36,7 +37,6 @@ pub struct PlayerPosition {
 }
 
 /// Contains all inputs that the client needs to tell the server
-/// TODO: refactor to enum?
 #[derive(Component, Encode, Decode, Clone, Debug, Default)]
 pub struct PlayerInput {
     pub left: bool,
@@ -45,6 +45,11 @@ pub struct PlayerInput {
     pub mine: bool, //true means the block at block_x, block_y was clicked on.
     pub block_x: usize,
     pub block_y: usize,
+}
+
+#[derive(Component)]
+pub struct Inventory {
+    blocktype: BlockType,
 }
 
 pub mod server {
@@ -391,7 +396,80 @@ pub mod client {
             .insert(CameraBoundsBox {
                 center_coord: bevy_position.clone(),
             });
+<<<<<<< Updated upstream
         // TODO: reset camera
+=======
+
+
+     let inventory_text_style = TextStyle {
+        font: assets.load("fonts/milky_coffee.ttf"),
+        font_size: 15.0,
+        color: Color::RED,
+    };
+
+    let mut binding = (&mut commands).spawn();
+    let inventory = binding
+        .insert_bundle(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                position_type: PositionType::Absolute,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::FlexStart,
+                ..default()
+            },
+            color: Color::NONE.into(),
+            ..default()
+        })
+        .with_children(|parent| {
+            parent.spawn().insert_bundle(ImageBundle {
+                style: Style {
+                    size: Size::new(Val::Px(600.0), Val::Auto),
+                    ..default()
+                },
+                image: assets.load("Hotbar.png").into(),
+                ..default()
+            });
+        });
+    let blocktypes = vec![
+        BlockType::Peridot,
+        BlockType::Quartz,
+        BlockType::Sand,
+        BlockType::Trunk,
+        BlockType::Basalt,
+        BlockType::Clay,
+        BlockType::Coal,
+        BlockType::Diabase,
+        BlockType::Gabbro,
+        BlockType::Granite,
+        BlockType::Iron,
+        BlockType::Labradorite,
+        BlockType::Leaves,
+        BlockType::Limestone,
+    ];
+    let mut n = 0;
+    for blocks in blocktypes {
+        inventory.with_children(|parent| {
+            parent
+                .spawn()
+                .insert_bundle(
+                    TextBundle::from_section("", inventory_text_style.clone()).with_style(Style {
+                        position_type: PositionType::Absolute,
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        position: UiRect {
+                            left: Val::Px(356.0 + ((n * 42) as f32)),
+                            right: Val::Px(388.0 + ((n * 42) as f32)),
+                            top: Val::Px(30.0),
+                            bottom: Val::Px(30.0),
+                        },
+                        ..default()
+                    }),
+                )
+                .insert(Inventory { blocktype: blocks });
+        });
+        n = n + 1;
+    }
+>>>>>>> Stashed changes
     }
 
     fn destroy_all_players(
@@ -583,7 +661,10 @@ pub mod client {
     //     }
     // }
 
+    
+
     /// Helper function, centers the camera in the camera bounds
+    
     fn reset_camera(camera_bounds: &CameraBoundsBox, mut camera_transform: &mut Transform) {
         camera_transform.translation.x = camera_bounds.center_coord[0];
         camera_transform.translation.y = camera_bounds.center_coord[1];

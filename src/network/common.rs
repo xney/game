@@ -72,6 +72,9 @@ pub enum ServerBodyElem {
     /// Player location info
     /// 0th element is the client's local player
     PlayerInfo(Vec<SingleNetPlayerInfo>),
+
+    //add inventory here
+    
 }
 
 /// Contains information about a single player
@@ -137,7 +140,7 @@ pub fn send_message<M: NetworkMessage>(
     // TODO: use a buffer instead of allocating into vector
     let size = bincode::encode_into_slice(message, buffer, BINCODE_CONFIG)
         .map_err(|e| SendError::EncodeError(e))?;
-    // info!("message size: {} bytes", size);
+    info!("message size: {} bytes", size);
     socket
         .send_to(&buffer[0..size], target)
         .map_err(|e| SendError::IoError(e))?;
