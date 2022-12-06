@@ -258,11 +258,11 @@ fn increase_network_tick(mut server: ResMut<Server>) {
 }
 
 fn process_player_mining(
-    query: Query<(&ClientAddress, &PlayerInput)>,
+    mut query: Query<(&ClientAddress, &PlayerInput, &mut ConnectedClientInfo)>,
     mut terrain: ResMut<Terrain>,
     mut commands: Commands,
 ) {
-    for (addr, inputs) in query.iter() {
+    for (addr, inputs, mut client) in query.iter_mut() {
         if inputs.mine {
             // destroy the block
             let res = world::server::destroy_block(
@@ -279,6 +279,7 @@ fn process_player_mining(
                         addr, inputs.block_x, inputs.block_y, block.block_type
                     );
                     //TODO: send client block.block_type so that they can use it in their inventory
+                    client.bodies.push(ServerBodyElem::BlockInfo(block.block_type));
                 }
                 Err(err) => {
                     error!(

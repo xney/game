@@ -492,7 +492,7 @@ fn handle_messages(
                 // );
             }
             //TODO: Update the text based on the BlockType we get
-            ServerBodyElem::BlockInfo(block_type) => todo!(),
+            ServerBodyElem::BlockInfo(block_type) => info!("\n---------------\nGot a block type message! {:?}\n---------------------\n",block_type),
         }
     }
 
