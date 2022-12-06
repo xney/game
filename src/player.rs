@@ -498,7 +498,20 @@ pub mod client {
         for (mut text, slot) in query_inv_text.iter_mut() {
             match inv.amounts.get(&slot.0) {
                 Some(amount) => {
-                    text.sections[0].value = format!("{}", amount);
+                    // only edit text if change detected
+                    let edit = match text.sections[0].value.parse::<usize>() {
+                        Ok(current) => {
+                            // true if different
+                            current != *amount
+                        }
+                        Err(_) => {
+                            // true if not parsable to usize
+                            true
+                        }
+                    };
+                    if edit {
+                        text.sections[0].value = format!("{}", amount);
+                    }
                 }
                 None => {
                     error!("no inventory amount for type: {:?}", slot.0);
