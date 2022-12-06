@@ -5,7 +5,7 @@ use bevy::{
 };
 use crate::world::BlockType;
 use iyes_loopless::prelude::*;
-use std::{cmp, time::Duration};
+use std::{cmp, time::Duration, collections::HashMap};
 
 use bincode::{Decode, Encode};
 
@@ -50,6 +50,7 @@ pub struct PlayerInput {
 #[derive(Component)]
 pub struct Inventory {
     blocktype: BlockType,
+    //amounts: HashMap<BlockType, usize>,
 }
 
 pub mod server {
@@ -445,6 +446,7 @@ pub mod client {
         BlockType::Limestone,
     ];
     let mut n = 0;
+    //let mut blockmap: HashMap<BlockType, usize> = HashMap::new();
     for blocks in blocktypes {
         inventory.with_children(|parent| {
             parent
@@ -463,7 +465,7 @@ pub mod client {
                         ..default()
                     }),
                 )
-                .insert(Inventory { blocktype: blocks });
+                .insert(Inventory { blocktype: blocks});
         });
         n = n + 1;
     }
@@ -588,6 +590,11 @@ pub mod client {
         }
     }
 
+    //TODO: make this work
+    pub fn text_update_system() {
+
+  }
+
     // fn handle_mining(
     //     mut windows: ResMut<Windows>,
     //     mouse: Res<Input<MouseButton>>,
@@ -658,10 +665,10 @@ pub mod client {
     //     }
     // }
 
-    
+
 
     /// Helper function, centers the camera in the camera bounds
-    
+
     fn reset_camera(camera_bounds: &CameraBoundsBox, mut camera_transform: &mut Transform) {
         camera_transform.translation.x = camera_bounds.center_coord[0];
         camera_transform.translation.y = camera_bounds.center_coord[1];

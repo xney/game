@@ -4,7 +4,7 @@ use std::net::{SocketAddr, UdpSocket};
 use super::*;
 use crate::args::ClientArgs;
 use crate::player::client::{spawn_other_player_at, CameraBoundsBox, LocalPlayer, Player};
-use crate::player::{PlayerInput, PlayerPosition, CAMERA_BOUNDS_SIZE, PLAYER_AND_BLOCK_SIZE};
+use crate::player::{PlayerInput, PlayerPosition, CAMERA_BOUNDS_SIZE, PLAYER_AND_BLOCK_SIZE, self};
 use crate::states;
 use crate::states::client::GameState;
 use crate::world::{derender_chunk, render_chunk, RenderedBlock, Terrain, WorldDelta};
@@ -491,6 +491,8 @@ fn handle_messages(
                 //     info_vec.len()
                 // );
             }
+            //TODO: Update the text based on the BlockType we get
+            ServerBodyElem::BlockInfo(block_type) => todo!(),
         }
     }
 

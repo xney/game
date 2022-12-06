@@ -265,27 +265,28 @@ fn process_player_mining(
     for (addr, inputs) in query.iter() {
         if inputs.mine {
             // destroy the block
-            let _res = world::server::destroy_block(
+            let res = world::server::destroy_block(
                 inputs.block_x,
                 inputs.block_y,
                 &mut commands,
                 &mut terrain,
             );
-            // we don't really care what happens
-            // match res {
-            //     Ok(block) => {
-            //         info!(
-            //             "player {} destroyed block at ({}, {}): {:?}",
-            //             addr, inputs.block_x, inputs.block_y, block.block_type
-            //         );
-            //     }
-            //     Err(err) => {
-            //         error!(
-            //             "player {} unable to destroy block at ({}, {}): {:?}",
-            //             addr, inputs.block_x, inputs.block_y, err
-            //         );
-            //     }
-            // }
+            //we really care what happens because of inventory
+            match res {
+                Ok(block) => {
+                    info!(
+                        "player {} destroyed block at ({}, {}): {:?}",
+                        addr, inputs.block_x, inputs.block_y, block.block_type
+                    );
+                    //TODO: send client block.block_type so that they can use it in their inventory
+                }
+                Err(err) => {
+                    error!(
+                        "player {} unable to destroy block at ({}, {}): {:?}",
+                        addr, inputs.block_x, inputs.block_y, err
+                    );
+                }
+            }
         }
     }
 }
