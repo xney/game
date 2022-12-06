@@ -7,8 +7,8 @@ use std::{
 };
 
 use crate::{
-    player::{PlayerInput, PlayerPosition},
-    world::{Terrain, WorldDelta, BlockType},
+    player::{Inventory, PlayerInput, PlayerPosition},
+    world::{BlockType, Terrain, WorldDelta},
 };
 
 /// This is the bincode config that we should use everywhere
@@ -72,9 +72,8 @@ pub enum ServerBodyElem {
     /// Player location info
     /// 0th element is the client's local player
     PlayerInfo(Vec<SingleNetPlayerInfo>),
-
-    //add inventory here
-    BlockInfo(BlockType),
+    /// The local player's inventory
+    Inventory(Inventory),
 }
 
 /// Contains information about a single player
@@ -140,7 +139,7 @@ pub fn send_message<M: NetworkMessage>(
     // TODO: use a buffer instead of allocating into vector
     let size = bincode::encode_into_slice(message, buffer, BINCODE_CONFIG)
         .map_err(|e| SendError::EncodeError(e))?;
-    info!("message size: {} bytes", size);
+    // info!("message size: {} bytes", size);
     socket
         .send_to(&buffer[0..size], target)
         .map_err(|e| SendError::IoError(e))?;

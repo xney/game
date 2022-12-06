@@ -3,7 +3,7 @@ use crate::{
     args::ServerArgs,
     player::{
         server::{handle_movement, JumpDuration, JumpState},
-        PlayerInput, PlayerPosition,
+        Inventory, PlayerInput, PlayerPosition,
     },
     states,
     world::{
@@ -209,6 +209,14 @@ impl Plugin for ServerPlugin {
         .add_fixed_timestep_system(
             NETWORK_TICK_LABEL,
             0,
+            enqueue_inventory
+                .run_in_state(states::server::GameState::Running)
+                .label("enqueue_inventory")
+                .after("increase_network_tick"),
+        )
+        .add_fixed_timestep_system(
+            NETWORK_TICK_LABEL,
+            0,
             enqueue_terrain
                 .run_in_state(states::server::GameState::Running)
                 .label("enqueue_terrain")
@@ -258,11 +266,16 @@ fn increase_network_tick(mut server: ResMut<Server>) {
 }
 
 fn process_player_mining(
-    mut query: Query<(&ClientAddress, &PlayerInput, &mut ConnectedClientInfo)>,
+    mut query: Query<(
+        &ClientAddress,
+        &PlayerInput,
+        &mut ConnectedClientInfo,
+        &mut Inventory,
+    )>,
     mut terrain: ResMut<Terrain>,
     mut commands: Commands,
 ) {
-    for (addr, inputs, mut client) in query.iter_mut() {
+    for (addr, inputs, mut client, mut inventory) in query.iter_mut() {
         if inputs.mine {
             // destroy the block
             let res = world::server::destroy_block(
@@ -274,18 +287,26 @@ fn process_player_mining(
             //we really care what happens because of inventory
             match res {
                 Ok(block) => {
-                    info!(
-                        "player {} destroyed block at ({}, {}): {:?}",
-                        addr, inputs.block_x, inputs.block_y, block.block_type
-                    );
-                    //TODO: send client block.block_type so that they can use it in their inventory
-                    client.bodies.push(ServerBodyElem::BlockInfo(block.block_type));
+                    // modify inventory
+                    match inventory.amounts.get_mut(&block.block_type) {
+                        Some(amount) => {
+                            *amount += 1;
+                        }
+                        None => {
+                            error!("block_type {:?} not in inventory??", block.block_type);
+                        }
+                    }
+
+                    // info!(
+                    //     "player {} destroyed block at ({}, {}): {:?}, new inv: {:?}",
+                    //     addr, inputs.block_x, inputs.block_y, block.block_type, inventory
+                    // );
                 }
-                Err(err) => {
-                    error!(
-                        "player {} unable to destroy block at ({}, {}): {:?}",
-                        addr, inputs.block_x, inputs.block_y, err
-                    );
+                Err(_err) => {
+                    // error!(
+                    //     "player {} unable to destroy block at ({}, {}): {:?}",
+                    //     addr, inputs.block_x, inputs.block_y, err
+                    // );
                 }
             }
         }
@@ -423,7 +444,7 @@ fn handle_messages(
         let mut input = PlayerInput::default();
         let jump_dur = JumpDuration::default();
         let jump_state = JumpState::default();
-        // TODO: add inventory
+        let inventory = Inventory::default();
         let mut connected = ConnectedClientInfo::default();
 
         info!("new connection from {}", client_addr);
@@ -442,7 +463,8 @@ fn handle_messages(
             .insert(input)
             .insert(connected)
             .insert(jump_dur)
-            .insert(jump_state);
+            .insert(jump_state)
+            .insert(inventory);
     }
 }
 
@@ -727,6 +749,13 @@ fn enqueue_player_info(
         target_client
             .bodies
             .push(ServerBodyElem::PlayerInfo(players));
+    }
+}
+
+/// Enqueue player inventory info to each client
+fn enqueue_inventory(mut clients: Query<(&mut ConnectedClientInfo, &Inventory)>) {
+    for (mut client, inv) in clients.iter_mut() {
+        client.bodies.push(ServerBodyElem::Inventory(inv.clone()));
     }
 }
 

@@ -9,6 +9,7 @@ use crate::{
 use bevy::prelude::*;
 use bincode::{BorrowDecode, Decode, Encode};
 use iyes_loopless::prelude::*;
+use strum_macros::EnumIter;
 
 use crate::player::PlayerPosition;
 
@@ -706,7 +707,7 @@ impl<'de> bincode::BorrowDecode<'de> for Block {
 pub struct RenderedBlock;
 
 /// A distinct type of block, with its own texture
-#[derive(Copy, Clone, Debug, Encode, Decode, PartialEq)]
+#[derive(Copy, Clone, Debug, Encode, Decode, PartialEq, Eq, EnumIter, Hash)]
 pub enum BlockType {
     Sand, // primary blocks
     Limestone,
@@ -728,7 +729,7 @@ pub enum BlockType {
 
 impl BlockType {
     /// Return the file path for the image that should be displayed for this block
-    const fn image_file_path(&self) -> &str {
+    pub const fn image_file_path(&self) -> &str {
         match self {
             BlockType::Sand => "Sand.png",
             BlockType::Limestone => "Limestone.png",
@@ -746,6 +747,13 @@ impl BlockType {
             BlockType::PalmTreeBlock => "PalmTreeBlock.png",
             BlockType::Leaves => "Leaves.png",
             BlockType::Trunk => "Trunk.png",
+        }
+    }
+
+    pub const fn is_real_block(&self) -> bool {
+        match self {
+            BlockType::CaveVoid | BlockType::PalmTreeBlock => false,
+            _ => true,
         }
     }
 }

@@ -4,7 +4,9 @@ use std::net::{SocketAddr, UdpSocket};
 use super::*;
 use crate::args::ClientArgs;
 use crate::player::client::{spawn_other_player_at, CameraBoundsBox, LocalPlayer, Player};
-use crate::player::{PlayerInput, PlayerPosition, CAMERA_BOUNDS_SIZE, PLAYER_AND_BLOCK_SIZE, self};
+use crate::player::{
+    self, Inventory, PlayerInput, PlayerPosition, CAMERA_BOUNDS_SIZE, PLAYER_AND_BLOCK_SIZE,
+};
 use crate::states;
 use crate::states::client::GameState;
 use crate::world::{derender_chunk, render_chunk, RenderedBlock, Terrain, WorldDelta};
@@ -379,7 +381,7 @@ fn handle_messages(
         (Entity, &mut PlayerPosition, &ClientAddress),
         (With<Player>, Without<LocalPlayer>),
     >,
-    mut local_player: Query<(&mut PlayerPosition, &mut Sprite), With<LocalPlayer>>,
+    mut local_player: Query<(&mut PlayerPosition, &mut Sprite, &mut Inventory), With<LocalPlayer>>,
     old_blocks: Query<Entity, With<RenderedBlock>>,
     assets: Res<AssetServer>,
 ) {
@@ -456,7 +458,7 @@ fn handle_messages(
                     //     "new local player position is: ({}, {})",
                     //     info.position.x, info.position.y
                     // );
-                    let (mut local_pos, mut local_sprite) = local_player.single_mut();
+                    let (mut local_pos, mut local_sprite, _) = local_player.single_mut();
 
                     // update local player game position, will be rendered in another system
                     *local_pos = info.position.clone();
@@ -491,8 +493,16 @@ fn handle_messages(
                 //     info_vec.len()
                 // );
             }
-            //TODO: Update the text based on the BlockType we get
-            ServerBodyElem::BlockInfo(block_type) => info!("\n---------------\nGot a block type message! {:?}\n---------------------\n",block_type),
+
+            ServerBodyElem::Inventory(new_inv) => {
+                // info!(
+                //     "Got an inventory message! {:?}",
+                //     inv
+                // )
+                // overwrite our inventory with new one
+                let (_, _, mut our_inv) = local_player.single_mut();
+                *our_inv = new_inv;
+            }
         }
     }
 

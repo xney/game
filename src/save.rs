@@ -11,7 +11,7 @@ use std::{
 use crate::{
     args::ServerArgs,
     network::{ClientAddress, BINCODE_CONFIG},
-    player::{PlayerInput, PlayerPosition},
+    player::{Inventory, PlayerInput, PlayerPosition},
     states,
     world::Terrain,
 };
@@ -56,7 +56,7 @@ pub mod server {
 struct PlayerInFile {
     addr: SocketAddr,
     position: PlayerPosition,
-    // TODO: inventory
+    inventory: Inventory,
 }
 
 /// Struct that get serialized to save the world
@@ -77,15 +77,15 @@ pub struct LoadFile {
 
 fn save_server(
     terrain: Res<Terrain>,
-    query: Query<(&PlayerPosition, &ClientAddress)>,
-    args: Res<ServerArgs>, // TODO: query for more inventory
+    query: Query<(&PlayerPosition, &ClientAddress, &Inventory)>,
+    args: Res<ServerArgs>,
 ) {
     let mut players_in_file = Vec::<PlayerInFile>::new();
-    for (position, addr) in query.iter() {
+    for (position, addr, inv) in query.iter() {
         let player = PlayerInFile {
             addr: addr.addr,
             position: position.clone(),
-            // TODO: add inventory
+            inventory: inv.clone(),
         };
         players_in_file.push(player);
     }
@@ -174,7 +174,6 @@ fn spawn_player(commands: &mut Commands, player: &PlayerInFile) {
         .spawn()
         .insert(ClientAddress { addr: player.addr })
         .insert(player.position.clone())
-        .insert(PlayerInput::default());
-
-    // TODO: add inventory
+        .insert(PlayerInput::default())
+        .insert(player.inventory.clone());
 }
