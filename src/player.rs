@@ -1,10 +1,12 @@
+use crate::world::BlockType;
 use bevy::{
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
     time::Stopwatch,
 };
 use iyes_loopless::prelude::*;
-use std::{cmp, time::Duration};
+use std::{cmp, collections::HashMap, time::Duration};
+use strum::IntoEnumIterator;
 
 use bincode::{Decode, Encode};
 
@@ -28,6 +30,7 @@ const PLAYER_MINE_RADIUS: f32 = 3.; //number of blocks
 const GRAVITY: f32 = -10.0;
 pub const CAMERA_BOUNDS_SIZE: [f32; 2] = [1000., 500.];
 const PLAYER_Z: f32 = 2.0;
+const INV_ICON_SIZE: f32 = 48.0;
 
 #[derive(Component, Default, Debug, Encode, Decode, Clone)]
 pub struct PlayerPosition {
@@ -36,7 +39,6 @@ pub struct PlayerPosition {
 }
 
 /// Contains all inputs that the client needs to tell the server
-/// TODO: refactor to enum?
 #[derive(Component, Encode, Decode, Clone, Debug, Default)]
 pub struct PlayerInput {
     pub left: bool,
@@ -45,6 +47,20 @@ pub struct PlayerInput {
     pub mine: bool, //true means the block at block_x, block_y was clicked on.
     pub block_x: usize,
     pub block_y: usize,
+}
+
+/// Represents the entire inventory for a player
+#[derive(Component, Debug, Encode, Decode, Clone)]
+pub struct Inventory {
+    pub amounts: HashMap<BlockType, usize>,
+}
+
+impl Default for Inventory {
+    fn default() -> Self {
+        // start with 0 of every block
+        let inv: HashMap<BlockType, usize> = BlockType::iter().map(|t| (t, 0)).collect();
+        Self { amounts: inv }
+    }
 }
 
 pub mod server {
@@ -304,6 +320,8 @@ pub mod server {
 }
 
 pub mod client {
+    use strum::IntoEnumIterator;
+
     use super::*;
 
     pub struct PlayerPlugin;
@@ -321,7 +339,10 @@ pub mod client {
                     .after("move_players_sprites_to_position")
                     .label("handle_camera_movement"),
             )
+            .add_system(re_render_inventory.run_in_state(GameState::InGame))
             .add_enter_system(GameState::InGame, init_spawn_local_player)
+            .add_enter_system(GameState::InGame, create_inventory_ui)
+            .add_exit_system(GameState::InGame, destroy_inventory_ui)
             .add_exit_system(GameState::InGame, destroy_all_players);
         }
     }
@@ -390,8 +411,120 @@ pub mod client {
             .insert(game_position)
             .insert(CameraBoundsBox {
                 center_coord: bevy_position.clone(),
-            });
+            })
+            .insert(Inventory::default());
         // TODO: reset camera
+    }
+
+    /// Marker struct for all top-level inventory UI entities
+    #[derive(Component)]
+    struct InventoryUi;
+
+    #[derive(Component)]
+    struct InventorySlot(BlockType);
+
+    /// Spawns the inventory UI
+    fn create_inventory_ui(assets: Res<AssetServer>, mut commands: Commands) {
+        let inventory_text_style = TextStyle {
+            font: assets.load("fonts/milky_coffee.ttf"),
+            font_size: 32.0,
+            color: Color::RED,
+        };
+
+        let mut inventory_root_entity = commands.spawn();
+        inventory_root_entity
+            .insert_bundle(NodeBundle {
+                style: Style {
+                    size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                    position_type: PositionType::Absolute,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::FlexStart,
+                    ..default()
+                },
+                color: Color::NONE.into(),
+                ..default()
+            })
+            .insert(InventoryUi);
+
+        let mut n = 0;
+        for block_type in BlockType::iter() {
+            // skip "fake" blocks
+            if !block_type.is_real_block() {
+                continue;
+            }
+            inventory_root_entity.with_children(|parent| {
+                let location = UiRect {
+                    left: Val::Px(n as f32 * INV_ICON_SIZE),
+                    right: Val::Px(n as f32 * INV_ICON_SIZE),
+                    top: Val::Px(INV_ICON_SIZE),
+                    bottom: Val::Px(INV_ICON_SIZE),
+                };
+                parent
+                    .spawn()
+                    // add text
+                    .insert_bundle(
+                        TextBundle::from_section("a", inventory_text_style.clone()).with_style(
+                            Style {
+                                position_type: PositionType::Absolute,
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                position: location.clone(),
+                                ..default()
+                            },
+                        ),
+                    )
+                    // add icon
+                    .insert_bundle(ImageBundle {
+                        style: Style {
+                            size: Size::new(Val::Px(INV_ICON_SIZE), Val::Px(INV_ICON_SIZE)),
+                            position: location.clone(),
+                            ..default()
+                        },
+                        image: assets.load(block_type.image_file_path()).into(),
+                        ..default()
+                    })
+                    // add type marker
+                    .insert(InventorySlot(block_type));
+            });
+            n = n + 1;
+        }
+    }
+
+    fn re_render_inventory(
+        query_inv: Query<&Inventory>,
+        mut query_inv_text: Query<(&mut Text, &InventorySlot)>,
+    ) {
+        let inv = query_inv.single();
+        for (mut text, slot) in query_inv_text.iter_mut() {
+            match inv.amounts.get(&slot.0) {
+                Some(amount) => {
+                    // only edit text if change detected
+                    let edit = match text.sections[0].value.parse::<usize>() {
+                        Ok(current) => {
+                            // true if different
+                            current != *amount
+                        }
+                        Err(_) => {
+                            // true if not parsable to usize
+                            true
+                        }
+                    };
+                    if edit {
+                        text.sections[0].value = format!("{}", amount);
+                    }
+                }
+                None => {
+                    error!("no inventory amount for type: {:?}", slot.0);
+                }
+            }
+        }
+    }
+
+    /// Destroy all entities with InventoryUi marker struct
+    fn destroy_inventory_ui(mut commands: Commands, query: Query<Entity, With<InventoryUi>>) {
+        for entity in query.iter() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
 
     fn destroy_all_players(
@@ -415,7 +548,7 @@ pub mod client {
         commands: &mut Commands,
         assets: &AssetServer,
         addr: &ClientAddress,
-        position: &PlayerPosition
+        position: &PlayerPosition,
     ) {
         // color based on address
         let color = addr.color();
@@ -440,7 +573,6 @@ pub mod client {
                 },
                 ..default()
             })
-
             .insert(Player)
             .insert(position.clone())
             .insert(addr.clone());
@@ -513,77 +645,8 @@ pub mod client {
         }
     }
 
-    // fn handle_mining(
-    //     mut windows: ResMut<Windows>,
-    //     mouse: Res<Input<MouseButton>>,
-    //     mut query: Query<(
-    //         &mut Transform,
-    //         &mut CameraBoundsBox,
-    //         &mut MineDuration,
-    //         With<LocalPlayer>,
-    //     )>,
-    //     mut commands: Commands,
-    //     mut terrain: ResMut<Terrain>,
-    //     time: Res<Time>,
-    // ) {
-    //     let window = windows.get_primary_mut();
-
-    //     if !window.is_none() {
-    //         let win = window.unwrap();
-
-    //         for (transform, camera_box, mut mine_timer, _player) in query.iter_mut() {
-    //             let ms = win.cursor_position();
-
-    //             if !ms.is_none() {
-    //                 let mouse_pos = ms.unwrap();
-
-    //                 //calculate distance of click from camera center
-    //                 let dist_x = mouse_pos.x - (WIN_W / 2.);
-    //                 let dist_y = mouse_pos.y - (WIN_H / 2.);
-
-    //                 //calculate bevy choords of click
-    //                 let game_x = camera_box.center_coord.x + dist_x;
-    //                 let game_y = camera_box.center_coord.y + dist_y;
-
-    //                 //calculate block coords from bevy coords
-    //                 let block_x = (game_x / 32.).round() as usize;
-    //                 let block_y = (game_y / -32.).round() as usize;
-
-    //                 //calculate player distance from mined blocks
-    //                 let player_x_coord = transform.translation.x;
-    //                 let player_y_coord = transform.translation.y;
-
-    //                 let player_x = (player_x_coord / 32.).round();
-    //                 let player_y = (player_y_coord / -32.).round();
-
-    //                 let mine_dist = ((block_x as f32 - player_x).powi(2)
-    //                     + (block_y as f32 - player_y).powi(2) as f32)
-    //                     .sqrt();
-
-    //                 if mouse.pressed(MouseButton::Left)
-    //                     && mine_dist <= PLAYER_MINE_RADIUS
-    //                     && block_exists(block_x, block_y, &mut terrain)
-    //                 {
-    //                     if mine_timer.timer.elapsed_secs() >= PLAYER_MINE_DURATION {
-    //                         // let _res = destroy_block(block_x, block_y, &mut commands, &mut terrain);
-    //                         mine_timer.timer.reset();
-    //                     }
-
-    //                     mine_timer.timer.tick(time.delta());
-    //                 } else if mouse.just_released(MouseButton::Left) {
-    //                     mine_timer.timer.reset();
-    //                 }
-
-    //                 //DEBUGGING: Right click to instantly mine
-    //                 if mouse.pressed(MouseButton::Right) {
-    //                     // let _res = destroy_block(block_x, block_y, &mut commands, &mut terrain);
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-
     /// Helper function, centers the camera in the camera bounds
+
     fn reset_camera(camera_bounds: &CameraBoundsBox, mut camera_transform: &mut Transform) {
         camera_transform.translation.x = camera_bounds.center_coord[0];
         camera_transform.translation.y = camera_bounds.center_coord[1];

@@ -7,8 +7,8 @@ use std::{
 };
 
 use crate::{
-    player::{PlayerInput, PlayerPosition},
-    world::{Terrain, WorldDelta},
+    player::{Inventory, PlayerInput, PlayerPosition},
+    world::{BlockType, Terrain, WorldDelta},
 };
 
 /// This is the bincode config that we should use everywhere
@@ -72,6 +72,8 @@ pub enum ServerBodyElem {
     /// Player location info
     /// 0th element is the client's local player
     PlayerInfo(Vec<SingleNetPlayerInfo>),
+    /// The local player's inventory
+    Inventory(Inventory),
 }
 
 /// Contains information about a single player

@@ -155,8 +155,8 @@ fn menu_action(
 
 fn despawn_screen<T: Component>(to_despawn: Query<Entity, With<T>>, mut commands: Commands) {
     for entity in &to_despawn {
-        info!("despawning {}", entity.id());
+        // info!("despawning {}", entity.id());
         commands.entity(entity).despawn_recursive();
     }
-    info!("despawning");
+    // info!("despawning");
 }
